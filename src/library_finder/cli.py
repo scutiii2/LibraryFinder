@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -56,16 +57,31 @@ def configured_workers(project_root: Path) -> int:
     return workers
 
 
+def load_env(project_root: Path) -> None:
+    """Load KEY=VALUE lines from <project_root>/.env into os.environ; variables already set win."""
+    try:
+        lines = (project_root / ".env").read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line: continue
+        key, value = line.split("=", 1)
+        key, value = key.strip().removeprefix("export ").strip(), value.strip().strip("\"'")
+        if key and value: os.environ.setdefault(key, value)
+
+
 def configured_backends(project_root: Path) -> dict:
-    """Backend choices from configs.json; missing keys keep the local defaults (Copilot browser, in-process Laya)."""
+    """Backend choices: environment (.env) over configs.json over local defaults (Copilot browser, in-process Laya)."""
+    load_env(project_root)
     try:
         config = json.loads((project_root / "configs.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         config = {}
     settings = {"enrichment_backend": config.get("enrichment_backend", "copilot"),
-                "minicpm_url": config.get("minicpm_url", "http://127.0.0.1:9130"),
+                "minicpm_url": os.environ.get("MINICPM_URL") or config.get("minicpm_url", "http://127.0.0.1:9130"),
                 "laya_backend": config.get("laya_backend", "local"),
-                "laya_url": config.get("laya_url", "http://127.0.0.1:9120")}
+                "laya_url": os.environ.get("LAYA_URL") or config.get("laya_url", "http://127.0.0.1:9120")}
     if settings["enrichment_backend"] not in ("copilot", "minicpm"):
         raise ValueError("enrichment_backend must be copilot or minicpm")
     if settings["laya_backend"] not in ("local", "service"):

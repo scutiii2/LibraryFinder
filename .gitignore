@@ -2,6 +2,7 @@
 .*
 !.gitignore
 !.gitattributes
+!.env.example
 
 # Local state: catalog, library paths, Copilot browser profile
 catalog.json

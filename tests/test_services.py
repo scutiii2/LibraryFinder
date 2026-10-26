@@ -111,3 +111,15 @@ def test_unknown_backend_is_rejected(tmp_path):
     (tmp_path / "configs.json").write_text(json.dumps({"enrichment_backend": "gpt"}))
     with pytest.raises(ValueError, match="enrichment_backend"):
         configured_backends(tmp_path)
+
+
+def test_env_file_supplies_urls_and_tokens_without_overriding_real_environment(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setattr(os, "environ", {"LAYA_URL": "http://real:9120"})
+    (tmp_path / "configs.json").write_text(json.dumps({"enrichment_backend": "minicpm", "minicpm_url": "http://cfg:1"}))
+    (tmp_path / ".env").write_text("# comment\nMINICPM_URL=http://10.0.0.5:9130\nexport MINICPM_TOKEN=\"tok\"\nLAYA_URL=http://file:9120\n")
+    settings = configured_backends(tmp_path)
+    assert settings["minicpm_url"] == "http://10.0.0.5:9130"
+    assert settings["laya_url"] == "http://real:9120"
+    assert os.environ["MINICPM_TOKEN"] == "tok"
+    assert enrichment_factory(tmp_path)().token == "tok"

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Library Finder</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/catalog-mode.css">
+</head>
+<body>
+  <nav class="sidebar" aria-label="Main navigation">
+    <div class="brand"><span>▰</span> Library Finder</div>
+    <button class="nav active" data-view="search-view">⌕ <span>Search</span></button>
+    <button class="nav" data-view="settings-view">⚙ <span>Settings</span></button>
+    <small>● Local workspace<br>Python utility discovery</small>
+  </nav>
+  <main>
+    <div class="topbar">Workspace / <strong id="breadcrumb">Search</strong><span class="tag">Library Finder</span></div>
+    <p id="catalog-warning" role="status" hidden><a id="refresh-warning" href="#settings-view">Catalog refresh needed — <span id="catalog-warning-reasons"></span>. Open Settings to rebuild.</a></p>
+    <section id="settings-view" class="card" hidden>
+      <header><h1>Workspace settings</h1><p class="lede">Choose your library, tune search, and keep your catalog up to date.</p></header>
+      <div class="settings-layout"><div class="settings-main"><section class="card settings-card"><div class="card-heading"><h2>Library & search</h2><p>Defaults for this workspace</p></div>
+      <form id="settings-form">
+        <label>Library directories<textarea id="source-root" required rows="4" placeholder="C:\path\to\libs&#10;D:\another\library"></textarea><span class="small">One directory per line. Nested and duplicate selections are included only once.</span></label>
+        <label>Default confidence threshold<input id="default-threshold" type="number" min="0" max="1" step="0.01" required></label>
+        <button>Save changes</button>
+      </form>
+      <p id="settings-status" role="status"></p>
+      </section>
+    <section id="catalog" class="catalog-strip">
+      <div class="catalog-heading"><h2>Utility catalog</h2><p>Source index & Copilot explanations</p></div>
+      <div class="catalog-mode"><fieldset><legend>Catalog mode</legend><label><input type="radio" name="catalog-mode" value="fast"> Fast</label><label><input type="radio" name="catalog-mode" value="ai" checked> AI-assisted</label></fieldset><p id="catalog-mode-help">AI-assisted opens a dedicated Copilot window to explain new or changed methods. You can keep it in the background and use other windows, but do not type, navigate, close tabs, or otherwise interact with that Copilot window until cataloging finishes.</p></div>
+      <div><p id="catalog-status">Loading library settings…</p></div>
+      <button id="build-catalog" type="button">Build / refresh catalog</button>
+      <button id="cancel-catalog" type="button" hidden>Cancel build</button>
+      <div><progress id="catalog-progress" max="100" value="0" aria-label="Catalog build progress"></progress><span id="catalog-progress-label" role="status">Ready</span></div>
+      <ul id="catalog-errors" aria-live="polite"></ul>
+      <p class="catalog-note">Changed snippets are analyzed using your signed-in Microsoft 365 Copilot account. The catalog conversation is deleted after completion.</p>
+    </section>
+      </div><aside class="settings-help"><h3>One catalog, two steps</h3><p>Python scanning records methods and their locations. Copilot adds explanations that make them easier to discover.</p><h3>Incremental by default</h3><p>Only new, changed, or previously failed methods are sent for analysis when you refresh.</p><h3>Refresh reminders</h3><p>The note above the workspace appears when source files change or explanations are incomplete.</p></aside></div>
+    </section>
+    <div id="search-view">
+    <header><h1>Find your next building block.</h1><p class="lede">Describe your goal. Discover the methods already in your library.</p></header>
+    <form id="search">
+      <label class="query">What do you want to accomplish?<textarea id="goal" required aria-describedby="search-keyboard-help" placeholder="Find a Jaggaer ticket and wait until its details are visible"></textarea><span id="search-keyboard-help" class="small">Enter to search · Shift+Enter for a new line</span></label>
+      <div class="chips"><button type="button" class="chip">Find a Jaggaer ticket</button><button type="button" class="chip">Read a cached value</button><button type="button" class="chip">Wait for an element</button></div>
+      <label class="threshold-field">Minimum confidence<input id="threshold" type="number" min="0" max="1" step="0.01" value="{{DEFAULT_THRESHOLD}}"></label>
+      <button id="submit" type="submit">Search library →</button>
+    </form>
+    <section class="card progress-card"><strong id="progress" aria-live="polite">Ready to assess catalog</strong><div class="progress-line"><progress id="progress-bar" value="0" max="1"></progress><span id="percentage">0% complete</span></div></section>
+    <div class="grid">
+      <div><section class="card evaluation">
+        <h2>Search results <span id="assessed" class="badge">0 assessed</span></h2>
+        <p>Evaluating catalog methods for relevance to your query.</p>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Method</th><th>Score</th><th>Status</th><th>Notes</th></tr></thead><tbody id="results" aria-live="polite"></tbody></table></div>
+      </section><section class="card preview">
+        <h2>Method details</h2>
+        <p id="source-path">Select a method</p>
+        <pre id="code">Select a method to view its source.</pre>
+      </section></div>
+      <aside><section class="card">
+        <h2>▤ &nbsp; Summary</h2>
+        <p id="summary" class="summary">No completed search.</p>
+        <dl><div><dt>Passed</dt><dd id="passed-count">0</dd></div><div><dt>Declined</dt><dd id="declined-count">0</dd></div><div><dt>Remaining</dt><dd id="remaining-count">0</dd></div></dl>
+      </section><section class="card">
+        <h2><span class="blue">★</span> Top hits</h2>
+        <p>Methods sorted by highest relevance score.</p>
+        <ol id="hits"></ol>
+      </section></aside>
+    </div>
+    </div>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

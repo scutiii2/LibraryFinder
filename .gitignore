@@ -1,0 +1,27 @@
+# Dotfiles and dot-folders (.venv/, .profiles/, .pytest_cache/, .superpowers/, .env*, ...)
+.*
+!.gitignore
+!.gitattributes
+
+# Local state: catalog, library paths, Copilot browser profile
+catalog.json
+library-source.txt
+.profiles/
+tmp*
+
+# Build output
+dist/
+build/
+*.egg-info/
+*.zip
+
+# Dependencies and Python caches
+venv/
+__pycache__/
+*.py[cod]
+
+# Secrets and logs
+secrets/
+*.pem
+*.key
+*.log

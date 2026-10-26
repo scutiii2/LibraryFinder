@@ -1,0 +1,84 @@
+# Library Finder
+
+Library Finder is a local CLI and web UI for discovering reusable utilities and methods in a Python library folder. It scans Python syntax only: it never imports utility code, opens Chrome, runs automation, or reads `.env` values or credentials.
+
+## Project layout
+
+```text
+src/library_finder/   scanner, catalog, search, Copilot transport, CLI and web UI
+tests/                run with: python -m pytest
+configs.json          confidence threshold and Copilot worker count
+run.bat               one-click launcher for the web UI
+VERSION               application version
+catalog.json          generated catalog (local, gitignored)
+library-source.txt    library directories saved in Settings (local, gitignored)
+```
+
+## Requirements
+
+- Windows with Python 3.11 or newer.
+- Microsoft Edge and a Microsoft 365 Copilot account, only for AI-assisted cataloging. Use `catalog --no-copilot` to skip it.
+
+Local data stays on this machine: `.profiles/` (signed-in Edge profile) and `catalog.json` are gitignored. See [SECURITY.md](SECURITY.md).
+
+## Copilot catalog notes
+
+Copilot catalog requests include up to five new/changed methods per worker. Batches are reduced when their combined source snippets exceed 24,000 characters. Replies are keyed by exact method identity; each validated result is checkpointed individually as soon as the batch reply is collected. Missing or invalid entries remain retryable without discarding successful entries from the same batch. This reduces request count but does not remove Copilot's service limits.
+
+Multiple libraries: in Settings, enter one library directory per line, save, then build the catalog. Duplicate and nested selections are scanned once. All directories share one searchable catalog, including freshness checks and source previews. Existing single-directory settings remain supported. Moving from a single-directory catalog to a combined catalog assigns directory-specific method identities and requires a fresh enrichment pass.
+
+CLI example (uses the project virtual environment):
+
+```powershell
+.\.venv\Scripts\library-finder.exe catalog --source "C:\libraries\first" "D:\libraries\second" --no-copilot
+```
+
+Omit `--no-copilot` for AI-assisted cataloging. Without `--source`, the CLI uses the directories saved in Settings.
+
+AI-assisted catalog concurrency is controlled by `copilot_workers` in `configs.json` (integer 1–5, default 1). Set it to `5` for up to five simultaneous Copilot conversations. Both CLI and web builds read it at the start of each build. Fast mode never opens Copilot. Each worker keeps its own tab and thread; completed method checkpoints are merged and saved serially. A timed-out worker leaves its remaining assignments pending while other workers continue. Multiple workers have automated coverage with fake clients; live Copilot throughput and throttling still need validation.
+
+## Install and use
+
+Install the package into an approved Python environment, then run:
+
+```powershell
+python -m pip install -e ".[dev,laya,copilot]"
+```
+
+From this directory:
+
+```powershell
+python -m library_finder.cli catalog
+python -m library_finder.cli find "wait for a ticket element and click it"
+python -m library_finder.cli show libs.drivers.TicketDriver.some_method
+```
+
+Set the strict Laya pass threshold in `configs.json`. A method passes only when
+its Laya yes probability is greater than `confidence_threshold`.
+
+## Local web UI
+
+Install the optional local web dependencies, then start the browser UI:
+
+```powershell
+python -m pip install -e ".[dev,laya,web]"
+library-finder-web
+```
+
+Or use the project launcher, which always opens the web UI and accepts no
+arguments:
+
+```powershell
+.\run.bat
+```
+
+The server listens only on `127.0.0.1:8000`. Each search scans the configured
+library locally, streams Laya decisions to the page, and uses `configs.json` as
+the default confidence threshold. A threshold entered in the page applies only
+to that search and does not modify the configuration file.
+
+`catalog` writes `catalog.json` locally. By default it sends a bounded snippet for each initially discovered method to the signed-in Microsoft 365 Copilot account in Library Finder's dedicated Edge profile, then reuses unchanged explanations and only resubmits new, changed, or previously failed methods. The catalog conversation is deleted when the run finishes; a deletion warning means it could not be confirmed and should be checked manually. Use `catalog --no-copilot` for AST-only cataloging, or `catalog --strict` to fail for source or enrichment failures. `find` warns when library files have changed since the catalog was built.
+
+Methods beginning with `_` are searchable but display `INTERNAL`; they may be unstable. Results are advisory and include source locations, inferred side effects, and setup implications. The CLI first retrieves from its local catalog, then attempts local Laya ranking. If Laya is not installed, fails, or returns an uncertain/invalid choice, deterministic results remain available.
+
+Omit `laya` when only deterministic local matching is needed: `python -m pip install -e ".[dev]"`.

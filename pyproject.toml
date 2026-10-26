@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "library-finder"
+version = "0.1.0"
+description = "Find reusable methods in the SBM Selenium utility library"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+laya = ["laya"]
+dev = ["pytest>=8"]
+web = ["fastapi", "uvicorn"]
+copilot = ["playwright>=1.49"]
+
+[project.scripts]
+library-finder = "library_finder.cli:main"
+library-finder-web = "library_finder.web:run_server"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

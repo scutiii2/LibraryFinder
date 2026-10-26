@@ -152,3 +152,50 @@ def test_minicpm_prompt_has_no_template_values_to_copy():
     from backends.minicpm import build_minicpm_prompt
     prompt = build_minicpm_prompt(_method())
     assert "parameter: description" not in prompt and "short summary" not in prompt
+
+
+def _method_from(source, params, effects=(), annotation=None):
+    return MethodRecord("libs.m", "libs", "d.py", 1, "public", None, (), tuple(params), annotation, (), None, (), (),
+                        tuple(effects), source)
+
+
+def test_inputs_outputs_and_side_effects_come_from_the_scanner_not_the_model():
+    from backends.minicpm import build_enrichment
+    method = _method_from("def read(self, path, now=None):\n    return {'a': 1}\n", ["self", "path", "now"], ["filesystem"])
+    value = {**GOOD, "inputs": ["invented"], "outputs": ["invented"], "side_effects": ["invented"], "caveats": ["invented"]}
+    result = build_enrichment(value, method)
+    assert result.inputs == ("path", "now")
+    assert result.outputs == ("Returns a value",)
+    assert result.side_effects == ("filesystem",)
+    assert result.caveats == ()
+
+
+def test_outputs_use_the_return_annotation_and_ignore_nested_returns():
+    from backends.minicpm import scanner_fields
+    annotated = _method_from("def f(self) -> bool:\n    return True\n", ["self"], annotation="bool")
+    assert scanner_fields(annotated)[1] == ["Returns bool"]
+    nested = _method_from("def f(self):\n    def inner():\n        return 1\n    inner()\n", ["self"])
+    assert scanner_fields(nested)[1] == []
+    bare = _method_from("def f(self):\n    return None\n", ["self"])
+    assert scanner_fields(bare)[1] == []
+
+
+def test_keywords_drop_number_words_echoes_and_long_phrases():
+    from backends.minicpm import build_enrichment
+    value = {**GOOD, "keywords": ["three", "terms a developer might search for", "handoff", "handoff", "a very long phrase of many words"]}
+    assert build_enrichment(value, _method()).keywords == ("handoff",)
+
+
+def test_minicpm_retries_when_the_summary_echoes_the_instructions(service):
+    echoed = {**GOOD, "summary": "One sentence describing the method."}
+    service.replies = [(200, {"content": json.dumps(echoed), "finish_reason": "stop"}),
+                       (200, {"content": json.dumps(GOOD), "finish_reason": "stop"})]
+    assert MiniCPMClient(service.url).enrich(_method()).summary == "s"
+    assert len(service.seen) == 2
+
+
+def test_minicpm_sends_a_worked_example_before_the_method(service):
+    service.replies = [(200, {"content": json.dumps(GOOD), "finish_reason": "stop"})]
+    MiniCPMClient(service.url).enrich(_method())
+    roles = [message["role"] for message in service.seen[0][2]["messages"]]
+    assert roles == ["user", "assistant", "user"]

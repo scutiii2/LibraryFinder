@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from library_finder.cli import configured_source, configured_sources, configured_threshold, configured_workers
+from library_finder.cli import configured_source, configured_sources, configured_threshold, configured_workers, configured_backends, enrichment_factory, ranker_factory as configured_ranker_factory
 from library_finder.sources import scan_sources, normalize_sources, catalog_roots
 from library_finder.parallel_catalog import enrich_parallel
 from library_finder.laya_ranker import LayaRanker
@@ -36,9 +36,11 @@ _PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 def create_app(*, source_root: Path | None = None, default_threshold: float | None = None,
                scanner: Callable = scan_library, ranker_factory: Callable = LayaRanker,
-               copilot_factory: Callable = CopilotClient, data_directory: Path | None = None,
+               copilot_factory: Callable | None = None, data_directory: Path | None = None,
                model_loader: Callable | None = None) -> FastAPI:
     root = Path(data_directory) if data_directory is not None else _PROJECT_DIR
+    if copilot_factory is None: copilot_factory = enrichment_factory(root)
+    if ranker_factory is LayaRanker: ranker_factory = configured_ranker_factory(root)
     @asynccontextmanager
     async def lifespan(app):
         if ranker_factory is LayaRanker:

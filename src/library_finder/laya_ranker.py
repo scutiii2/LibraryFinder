@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Sequence
 
+from library_finder.http_json import ServiceError, ServiceUnreachable, request_json
 from library_finder.models import MethodRecord
 
 
@@ -22,6 +24,9 @@ class LayaRanker:
                 raise RuntimeError("Laya is not installed") from error
             self._engine = laya.load("convaiinnovations/laya")
         return self._engine
+
+    def _predict(self, text: str, questions: dict) -> dict:
+        return self._engine.predict(text, questions)
 
     def rank(self, goal: str, methods: Sequence[MethodRecord]) -> dict:
         self.prepare()
@@ -48,7 +53,7 @@ class LayaRanker:
                 "labels": {"false": "No", "true": "Yes"},
                 }
             }
-            answer = self._engine.predict(f"Goal: {goal}", questions)["answers"]["fit"]
+            answer = self._predict(f"Goal: {goal}", questions)["answers"]["fit"]
             confidence = float(answer["noul"])
             recommendations.append({
                 "method": item.qualified_name,
@@ -58,3 +63,28 @@ class LayaRanker:
             if self._on_evaluation is not None:
                 self._on_evaluation(current, total, item, confidence)
         return {"recommendations": recommendations}
+
+
+class LayaServiceRanker(LayaRanker):
+    """Ranks through a remote or local laya_service over HTTP; loads no model here."""
+
+    def __init__(self, url: str, token: str | None = None, on_evaluation=None, timeout: float = 120) -> None:
+        super().__init__(on_evaluation=on_evaluation)
+        self.url = url.rstrip("/")
+        self.token = token if token is not None else os.environ.get("LAYA_TOKEN")
+        self.timeout = timeout
+
+    def prepare(self):
+        """Check the service is up; raise RuntimeError so callers fall back to deterministic results."""
+        try:
+            request_json("GET", self.url + "/health", timeout=10)
+        except (ServiceUnreachable, ServiceError) as error:
+            raise RuntimeError(f"Laya service is not reachable at {self.url}") from error
+        return self
+
+    def _predict(self, text: str, questions: dict) -> dict:
+        try:
+            return request_json("POST", self.url + "/v1/ask", {"strategy": "auto", "text": text, "questions": questions},
+                                token=self.token, timeout=self.timeout)
+        except (ServiceUnreachable, ServiceError) as error:
+            raise RuntimeError(f"Laya service request failed: {error}") from error

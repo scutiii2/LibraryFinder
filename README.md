@@ -21,6 +21,25 @@ library-source.txt    library directories saved in Settings (local, gitignored)
 
 Local data stays on this machine: `.profiles/` (signed-in Edge profile) and `catalog.json` are gitignored. See [SECURITY.md](SECURITY.md).
 
+## Model services (optional)
+
+Catalog enrichment and Laya ranking can use separate HTTP services, running on this machine or another device. Library Finder never starts them; `run.bat` starts only the web UI. Set the backends in `configs.json` (all keys optional):
+
+```json
+{
+  "enrichment_backend": "minicpm",
+  "minicpm_url": "http://127.0.0.1:9130",
+  "laya_backend": "service",
+  "laya_url": "http://127.0.0.1:9120"
+}
+```
+
+- `enrichment_backend`: `copilot` (default, browser) or `minicpm` (MiniCPM service, one method per request, no browser).
+- `laya_backend`: `local` (default, loads Laya in this process) or `service` (calls the Laya service; nothing is loaded here).
+- Service tokens are read from the `MINICPM_TOKEN` and `LAYA_TOKEN` environment variables, never from `configs.json`.
+- If the MiniCPM service is down, the build pauses and keeps results saved so far. If the Laya service is down, search falls back to deterministic results.
+- Source snippets go to whatever host the URLs name, so use hosts you trust.
+
 ## Copilot catalog notes
 
 Copilot catalog requests include up to five new/changed methods per worker. Batches are reduced when their combined source snippets exceed 24,000 characters. Replies are keyed by exact method identity; each validated result is checkpointed individually as soon as the batch reply is collected. Missing or invalid entries remain retryable without discarding successful entries from the same batch. This reduces request count but does not remove Copilot's service limits.

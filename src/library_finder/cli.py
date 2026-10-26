@@ -56,6 +56,41 @@ def configured_workers(project_root: Path) -> int:
     return workers
 
 
+def configured_backends(project_root: Path) -> dict:
+    """Backend choices from configs.json; missing keys keep the local defaults (Copilot browser, in-process Laya)."""
+    try:
+        config = json.loads((project_root / "configs.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        config = {}
+    settings = {"enrichment_backend": config.get("enrichment_backend", "copilot"),
+                "minicpm_url": config.get("minicpm_url", "http://127.0.0.1:9130"),
+                "laya_backend": config.get("laya_backend", "local"),
+                "laya_url": config.get("laya_url", "http://127.0.0.1:9120")}
+    if settings["enrichment_backend"] not in ("copilot", "minicpm"):
+        raise ValueError("enrichment_backend must be copilot or minicpm")
+    if settings["laya_backend"] not in ("local", "service"):
+        raise ValueError("laya_backend must be local or service")
+    return settings
+
+
+def enrichment_factory(project_root: Path):
+    """Return a zero-argument callable that builds the configured catalog client."""
+    settings = configured_backends(project_root)
+    if settings["enrichment_backend"] == "minicpm":
+        from library_finder.minicpm import MiniCPMClient
+        return lambda: MiniCPMClient(settings["minicpm_url"])
+    return CopilotClient
+
+
+def ranker_factory(project_root: Path):
+    """Return the Laya ranker class or factory (accepts on_evaluation=) for the configured backend."""
+    settings = configured_backends(project_root)
+    if settings["laya_backend"] == "service":
+        from library_finder.laya_ranker import LayaServiceRanker
+        return lambda on_evaluation=None: LayaServiceRanker(settings["laya_url"], on_evaluation=on_evaluation)
+    return LayaRanker
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="library-finder")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -89,17 +124,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             catalog = scanned
             summary = None
         else:
-            print("Cataloging sends changed source snippets to your signed-in Microsoft 365 Copilot account.")
-            workers = configured_workers(Path(__file__).resolve().parents[2])
+            root = Path(__file__).resolve().parents[2]
+            factory = enrichment_factory(root)
+            if configured_backends(root)["enrichment_backend"] == "minicpm":
+                print("Cataloging sends changed source snippets to the configured MiniCPM service.")
+            else:
+                print("Cataloging sends changed source snippets to your signed-in Microsoft 365 Copilot account.")
+            workers = configured_workers(root)
             if workers > 1:
                 from library_finder.parallel_catalog import enrich_parallel
-                catalog, summary, deleted = enrich_parallel(scanned, previous, CopilotClient, workers,
+                catalog, summary, deleted = enrich_parallel(scanned, previous, factory, workers,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
                 save_catalog(catalog, args.catalog)
                 print(f"cataloged {len(catalog.methods)} methods; reused {summary.reused}; enriched {summary.enriched}; failed {summary.failed}; pending {summary.pending}")
                 if not deleted: print("Copilot conversation cleanup was not confirmed for every worker.")
                 return 1 if args.strict and (catalog.errors or summary.failed or summary.pending) else 0
-            client = CopilotClient()
+            client = factory()
             try:
                 catalog, summary = enrich_catalog(scanned, previous, client,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
@@ -130,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         decision = "Passed" if confidence > threshold else "Decline"
         print(f"[({current}/{total}) {record.qualified_name} — {record.file}:{record.line}] {confidence:.2f} {decision}")
 
-    result = find_methods(args.goal, catalog, LayaRanker(on_evaluation=print_laya_evaluation))
+    result = find_methods(args.goal, catalog, ranker_factory(Path(__file__).resolve().parents[2])(on_evaluation=print_laya_evaluation))
     for warning in result.warnings:
         print(f"WARNING: {warning}")
     if result.used_laya:

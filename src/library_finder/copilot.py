@@ -120,11 +120,11 @@ def parse_enrichment(reply: str) -> CopilotEnrichment:
         raise CopilotResponseError("Copilot response has invalid text fields")
     return CopilotEnrichment(value["summary"], value["purpose"], tuple(value["inputs"]), tuple(value["outputs"]), tuple(value["side_effects"]), value["automation_context"], tuple(value["keywords"]), tuple(value["caveats"]))
 
-def build_prompt(method: MethodRecord) -> str:
+def build_prompt(method: MethodRecord, source_limit: int = 12000) -> str:
     if isinstance(method, tuple):
         return build_batch_prompt(method)
     shape = {"summary":"short summary", "purpose":"purpose", "inputs":["parameter: description"], "outputs":["return value description"], "side_effects":["effect"], "automation_context":"context", "keywords":["keyword"], "caveats":["limitation"]}
-    return "Return ONLY a JSON object matching this structure. summary, purpose, automation_context must be strings. inputs, outputs, side_effects, keywords, caveats must be arrays of strings; use [] when empty. No Markdown fences or extra keys. Infer cautiously from the source; do not invent APIs. Expected structure: " + json.dumps(shape) + "\nMethod to analyze: " + json.dumps({"qualified_name": method.qualified_name, "signature": method.parameters, "docstring": method.docstring, "effects": method.effects, "source": method.source[:12000]})
+    return "Return ONLY a JSON object matching this structure. summary, purpose, automation_context must be strings. inputs, outputs, side_effects, keywords, caveats must be arrays of strings; use [] when empty. No Markdown fences or extra keys. Infer cautiously from the source; do not invent APIs. Expected structure: " + json.dumps(shape) + "\nMethod to analyze: " + json.dumps({"qualified_name": method.qualified_name, "signature": method.parameters, "docstring": method.docstring, "effects": method.effects, "source": method.source[:source_limit]})
 
 
 def build_batch_prompt(methods):

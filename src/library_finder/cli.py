@@ -36,11 +36,20 @@ def configured_sources(project_root: Path) -> tuple[Path, ...]:
     return (project_root.parent / "SBM-Selenium-Automation-1" / "libs",)
 
 
+def read_config(project_root: Path) -> dict:
+    """Return configs.json (your local, untracked settings), or the tracked configs.json.example until it exists."""
+    for name in ("configs.json", "configs.json.example"):
+        try:
+            return json.loads((project_root / name).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError("configs.json")
+
+
 def configured_threshold(project_root: Path) -> float:
     """Return the strict Laya pass threshold from the project configuration."""
-    config_path = project_root / "configs.json"
     try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config = read_config(project_root)
         threshold = config["confidence_threshold"]
     except (FileNotFoundError, KeyError, json.JSONDecodeError) as error:
         raise ValueError("configs.json must define confidence_threshold") from error
@@ -50,10 +59,11 @@ def configured_threshold(project_root: Path) -> float:
 
 
 def configured_workers(project_root: Path) -> int:
-    config = json.loads((project_root / "configs.json").read_text(encoding="utf-8"))
-    workers = config.get("copilot_workers", 1)
+    config = read_config(project_root)
+    # `copilot_workers` is the old name of this setting.
+    workers = config.get("catalog_workers", config.get("copilot_workers", 1))
     if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 5:
-        raise ValueError("copilot_workers must be an integer from 1 through 5")
+        raise ValueError("catalog_workers must be an integer from 1 through 5")
     return workers
 
 
@@ -77,7 +87,7 @@ def configured_backends(project_root: Path) -> dict:
     """Backend choices: environment (.env) over configs.json over local defaults (Copilot browser, in-process Laya)."""
     load_env(project_root)
     try:
-        config = json.loads((project_root / "configs.json").read_text(encoding="utf-8"))
+        config = read_config(project_root)
     except (FileNotFoundError, json.JSONDecodeError):
         config = {}
     settings = {"enrichment_backend": config.get("enrichment_backend", "copilot"),

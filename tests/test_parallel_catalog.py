@@ -41,13 +41,13 @@ def test_two_workers_process_once_and_preserve_all_checkpoints(library_root):
 @pytest.mark.parametrize("value", [0, 6, True, 2.5, "5"])
 def test_invalid_worker_configuration_is_rejected(tmp_path, value):
     import json
-    (tmp_path / "configs.json").write_text(json.dumps({"copilot_workers":value}))
-    with pytest.raises(ValueError, match="copilot_workers"):
+    (tmp_path / "configs.json").write_text(json.dumps({"catalog_workers":value}))
+    with pytest.raises(ValueError, match="catalog_workers"):
         configured_workers(tmp_path)
 
 
 def test_worker_setting_accepts_five(tmp_path):
-    (tmp_path / "configs.json").write_text('{"copilot_workers":5}')
+    (tmp_path / "configs.json").write_text('{"catalog_workers":5}')
     assert configured_workers(tmp_path) == 5
 
 
@@ -81,3 +81,11 @@ def test_method_is_durable_before_next_request_while_other_worker_is_busy(librar
     _, summary, _ = enrich_parallel(scanned, None, Client, 2, on_checkpoint=checkpoint)
     assert summary.enriched == len(scanned.methods)
     assert all(m.enrichment_status == "success" for m in load_catalog(target).methods)
+
+
+def test_old_copilot_workers_name_still_works_and_new_name_wins(tmp_path):
+    from library_finder.cli import configured_workers
+    (tmp_path / "configs.json").write_text('{"copilot_workers":3}')
+    assert configured_workers(tmp_path) == 3
+    (tmp_path / "configs.json").write_text('{"copilot_workers":3,"catalog_workers":2}')
+    assert configured_workers(tmp_path) == 2

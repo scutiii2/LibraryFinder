@@ -15,7 +15,7 @@ def isolated_web_storage(tmp_path, monkeypatch):
     """Every web test must write only inside its own temporary directory."""
     storage = tmp_path / "web-data"
     storage.mkdir()
-    (storage / "configs.json").write_text('{"confidence_threshold":0.65,"copilot_workers":1}')
+    (storage / "configs.json").write_text('{"confidence_threshold":0.65,"catalog_workers":1}')
     monkeypatch.setattr("library_finder.web._PROJECT_DIR", storage)
 
 

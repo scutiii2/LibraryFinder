@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from library_finder.cli import configured_source, configured_sources, configured_threshold, configured_workers, configured_backends, enrichment_factory, ranker_factory as configured_ranker_factory
+from library_finder.cli import read_config, configured_source, configured_sources, configured_threshold, configured_workers, configured_backends, enrichment_factory, ranker_factory as configured_ranker_factory
 from library_finder.sources import scan_sources, normalize_sources, catalog_roots
 from library_finder.parallel_catalog import enrich_parallel
 from library_finder.laya_ranker import LayaRanker
@@ -82,6 +82,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"source_root": str(app.state.source_root),
                 "source_roots": list(map(str, app.state.source_roots)),
                 "threshold": app.state.default_threshold,
+                "enrichment_backend": configured_backends(root)["enrichment_backend"],
                 "catalog_methods": len(catalog.methods) if catalog else None,
                 "catalog_health": catalog_health(catalog, app.state.source_roots)}
 
@@ -102,7 +103,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             raise HTTPException(422, "Threshold must be a number from 0 through 1.")
         (root / "library-source.txt").write_text("\n".join(map(str, directories)), encoding="utf-8")
         config_path = root / "configs.json"
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config = read_config(root)
         config["confidence_threshold"] = threshold
         config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         if directories != app.state.source_roots:

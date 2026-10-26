@@ -7,7 +7,7 @@ Library Finder is a local CLI and web UI for discovering reusable utilities and 
 ```text
 src/library_finder/   scanner, catalog, search, Copilot transport, CLI and web UI
 tests/                run with: python -m pytest
-configs.json          confidence threshold and Copilot worker count
+configs.json.example  default settings; copy to configs.json (local, gitignored) to change them
 run.bat               one-click launcher for the web UI
 VERSION               application version
 catalog.json          generated catalog (local, gitignored)
@@ -54,7 +54,7 @@ CLI example (uses the project virtual environment):
 
 Omit `--no-copilot` for AI-assisted cataloging. Without `--source`, the CLI uses the directories saved in Settings.
 
-AI-assisted catalog concurrency is controlled by `copilot_workers` in `configs.json` (integer 1–5, default 1). Set it to `5` for up to five simultaneous Copilot conversations. Both CLI and web builds read it at the start of each build. Fast mode never opens Copilot. Each worker keeps its own tab and thread; completed method checkpoints are merged and saved serially. A timed-out worker leaves its remaining assignments pending while other workers continue. Multiple workers have automated coverage with fake clients; live Copilot throughput and throttling still need validation.
+AI-assisted catalog concurrency is controlled by `catalog_workers` in `configs.json` (integer 1–5, default 1; the old name `copilot_workers` still works). Set it to `5` for up to five simultaneous Copilot conversations, or parallel MiniCPM requests (the MiniCPM service runs `OLLAMA_NUM_PARALLEL` at once, default 2). Both CLI and web builds read it at the start of each build. Fast mode never opens Copilot. Each worker keeps its own tab and thread; completed method checkpoints are merged and saved serially. A timed-out worker leaves its remaining assignments pending while other workers continue. Multiple workers have automated coverage with fake clients; live Copilot throughput and throttling still need validation.
 
 ## Install and use
 
@@ -72,7 +72,7 @@ python -m library_finder.cli find "wait for a ticket element and click it"
 python -m library_finder.cli show libs.drivers.TicketDriver.some_method
 ```
 
-Set the strict Laya pass threshold in `configs.json`. A method passes only when
+Settings live in `configs.json`, which is local and gitignored. Until you create it, the tracked `configs.json.example` is used; copy it to `configs.json` to change values. Set the strict Laya pass threshold there. A method passes only when
 its Laya yes probability is greater than `confidence_threshold`.
 
 ## Local web UI

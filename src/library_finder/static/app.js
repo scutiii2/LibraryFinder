@@ -94,11 +94,14 @@ document.querySelectorAll('.chip').forEach(button => button.addEventListener('cl
   if (goal.disabled || button.disabled) return;
   goal.value = button.textContent; goal.focus();
 }));
-async function loadSettings() {
+let aiService = 'Copilot';
+async function loadSettings(keepStatus = false) {
   const response = await fetch('/api/settings'); const data = await response.json();
+  aiService = data.enrichment_backend === 'minicpm' ? 'MiniCPM' : 'Copilot';
+  updateAiText();
   document.querySelector('#source-root').value = (data.source_roots || [data.source_root]).join('\n');
   document.querySelector('#default-threshold').value = data.threshold;
-  document.querySelector('#catalog-status').textContent = `${(data.source_roots || [data.source_root]).length} library directories · ${data.catalog_methods === null ? 'Ready to build' : data.catalog_methods + ' methods cataloged'}`;
+  if (!keepStatus) document.querySelector('#catalog-status').textContent = `${(data.source_roots || [data.source_root]).length} library directories · ${data.catalog_methods === null ? 'Ready to build' : data.catalog_methods + ' methods cataloged'}`;
   document.querySelector('#catalog-warning').hidden = !data.catalog_health.needs_refresh;
   document.querySelector('#catalog-warning-reasons').textContent = data.catalog_health.reasons.join('; ');
 }
@@ -113,7 +116,7 @@ document.querySelector('#settings-form').addEventListener('submit', async event 
 document.querySelector('#build-catalog').addEventListener('click', async () => {
   const mode = document.querySelector('input[name="catalog-mode"]:checked').value;
   document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = true);
-  setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with your signed-in Microsoft 365 Copilot account…';
+  setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with ' + (aiService === 'MiniCPM' ? 'the MiniCPM service…' : 'your signed-in Microsoft 365 Copilot account…');
   const bar = document.querySelector('#catalog-progress');
   const label = document.querySelector('#catalog-progress-label');
   const errors = document.querySelector('#catalog-errors'); errors.replaceChildren();
@@ -158,7 +161,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
             row = {element, title, bar:workerBar, detail}; workerRows.set(data.worker_id, row);
             [...workerRows.entries()].sort((a,b) => a[0]-b[0]).forEach(([,item]) => workersPanel.append(item.element));
           }
-          const names = {starting:'Starting', processing:'Processing / waiting for Copilot', success:'Enriched', reused:'Reused', error:'Method failed', cleanup:'Cleaning up', finished:'Finished', finished_with_errors:'Finished with errors', interrupted:'Interrupted — remaining methods pending'};
+          const names = {starting:'Starting', processing:'Processing / waiting for ' + aiService, success:'Enriched', reused:'Reused', error:'Method failed', cleanup:'Cleaning up', finished:'Finished', finished_with_errors:'Finished with errors', interrupted:'Interrupted — remaining methods pending'};
           const workerStatus = data.status === 'cancelled' ? `Cancelled · ${data.pending || 0} pending` : data.status === 'interrupted' ? `Interrupted · ${data.pending || 0} pending; failed method saved for retry` : names[data.status] || data.status;
           row.title.textContent = `Worker ${data.worker_id} · ${data.current} / ${data.total} · ${workerStatus}`;
           row.bar.max = Math.max(1, data.total); row.bar.value = data.current;
@@ -176,7 +179,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
             bar.value = data.total ? 90 * data.current / data.total : 90;
             label.textContent = `${data.current} / ${data.total} methods · ${data.status} · ${data.method}`;
           } else {
-            label.textContent = data.stage === 'cleanup' ? 'Cleaning up Copilot conversation…' : data.stage === 'saving' ? 'Saving catalog…' : 'Scanning Python files…';
+            label.textContent = data.stage === 'cleanup' ? (aiService === 'MiniCPM' ? 'Cleaning up…' : 'Cleaning up Copilot conversation…') : data.stage === 'saving' ? 'Saving catalog…' : 'Scanning Python files…';
           }
         } else if (data.type === 'complete') {
           estimate.textContent = data.cancelled ? 'Build cancelled — saved results retained.' : data.interrupted ? 'Build interrupted — completion estimate unavailable.' : 'Build finished.';
@@ -184,7 +187,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
           bar.value = data.interrupted ? (data.methods ? 90 * (data.methods - data.pending) / data.methods : 0) : 100;
           label.textContent = data.cancelled ? 'Build cancelled — successful results saved; remaining methods pending' : data.interrupted ? 'Build interrupted — successful results saved; remaining methods pending' : 'Catalog build complete';
           await loadSettings();
-          status.textContent = `${data.methods} methods · ${data.files} files · ${data.errors} skipped files · ${data.reused} reused · ${data.enriched} enriched · ${data.failed} failed · ${data.pending} pending. Catalog saved.${data.mode === 'fast' ? ' Fast scan complete; Copilot was not opened. Existing unchanged explanations were preserved.' : data.interrupted ? ' Copilot window retained for inspection. Refresh to retry pending methods.' : data.conversation_deleted ? ' Copilot catalog conversation deleted.' : ' Copilot conversation deletion was not confirmed (or no conversation was needed).'}`;
+          status.textContent = `${data.methods} methods · ${data.files} files · ${data.errors} skipped files · ${data.reused} reused · ${data.enriched} enriched · ${data.failed} failed · ${data.pending} pending. Catalog saved.${data.mode === 'fast' ? ' Fast scan complete; ${aiService} was not used. Existing unchanged explanations were preserved.' : data.interrupted ? (aiService === 'MiniCPM' ? ' Refresh to retry pending methods.' : ' Copilot window retained for inspection. Refresh to retry pending methods.') : aiService === 'MiniCPM' ? '' : data.conversation_deleted ? ' Copilot catalog conversation deleted.' : ' Copilot conversation deletion was not confirmed (or no conversation was needed).'}`;
         }
       }
     }
@@ -202,16 +205,24 @@ document.querySelector('#cancel-catalog').addEventListener('click', async event 
     document.querySelector('#catalog-progress-label').textContent = 'Cancelling — saving collected results and stopping workers…';
   } catch(error) { button.disabled = false; button.textContent = 'Cancel build'; document.querySelector('#catalog-status').textContent = error.message; }
 });
-document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.addEventListener('change', () => {
-  document.querySelector('#catalog-mode-help').textContent = input.value === 'fast'
-    ? 'Fast scans Python files locally without opening Copilot. Existing explanations are preserved for unchanged methods; new or changed methods can be enriched later with AI-assisted mode.'
+function updateAiText() {
+  const minicpm = aiService === 'MiniCPM';
+  const note = document.querySelector('.catalog-note');
+  if (note) note.textContent = minicpm ? 'Changed snippets are sent to the configured MiniCPM service.' : 'Changed snippets are analyzed using your signed-in Microsoft 365 Copilot account. The catalog conversation is deleted after completion.';
+  const heading = document.querySelector('.catalog-heading p'); if (heading) heading.textContent = `Source index & ${aiService} explanations`;
+  const help = document.querySelector('#catalog-mode-help');
+  if (help && document.querySelector('input[name="catalog-mode"]:checked')) help.textContent = document.querySelector('input[name="catalog-mode"]:checked').value === 'fast'
+    ? `Fast scans Python files locally without using ${aiService}. Existing explanations are preserved for unchanged methods; new or changed methods can be enriched later with AI-assisted mode.`
+    : aiService === 'MiniCPM' ? 'AI-assisted sends new or changed methods to the configured MiniCPM service to explain them. No browser window is opened.'
     : 'AI-assisted opens a dedicated Copilot window to explain new or changed methods. You can keep it in the background and use other windows, but do not type, navigate, close tabs, or otherwise interact with that Copilot window until cataloging finishes.';
-}));
+}
+document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.addEventListener('change', updateAiText));
+
 document.querySelector('#refresh-warning').addEventListener('click', event => {
   event.preventDefault();
   document.querySelector('.nav[data-view="settings-view"]').click();
   document.querySelector('#catalog').scrollIntoView({behavior: 'smooth', block: 'center'});
   document.querySelector('#build-catalog').focus({preventScroll: true});
 });
-window.addEventListener('focus', () => { if (!submit.disabled) loadSettings().catch(() => {}); });
+window.addEventListener('focus', () => { if (!submit.disabled) loadSettings(true).catch(() => {}); });
 loadSettings().catch(() => { document.querySelector('#catalog-status').textContent = 'Could not load settings.'; });

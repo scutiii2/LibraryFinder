@@ -1,0 +1,6 @@
+{
+  "confidence_threshold": 0.65,
+  "catalog_workers": 1,
+  "enrichment_backend": "copilot",
+  "laya_backend": "local"
+}

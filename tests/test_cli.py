@@ -110,3 +110,11 @@ def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_roo
     assert output.count("0.60 Passed") == 2
     hits = output[output.index("Hits:"):]
     assert hits.index("0.80 Passed") < hits.index("0.60 Passed")
+
+
+def test_settings_fall_back_to_tracked_example_until_configs_json_exists(tmp_path):
+    from library_finder.cli import configured_threshold, configured_workers
+    (tmp_path / "configs.json.example").write_text('{"confidence_threshold": 0.4, "catalog_workers": 2}', encoding="utf-8")
+    assert configured_threshold(tmp_path) == 0.4 and configured_workers(tmp_path) == 2
+    (tmp_path / "configs.json").write_text('{"confidence_threshold": 0.9}', encoding="utf-8")
+    assert configured_threshold(tmp_path) == 0.9

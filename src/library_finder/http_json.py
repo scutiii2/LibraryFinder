@@ -1,5 +1,6 @@
 """Minimal JSON-over-HTTP helper for the local model services."""
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -13,8 +14,17 @@ class ServiceError(RuntimeError):
         self.status = status
 
 
-def request_json(method, url, payload=None, *, token=None, timeout=120):
-    """Send one JSON request; raise ServiceUnreachable or ServiceError, return the decoded body."""
+def request_json(method, url, payload=None, *, token=None, timeout=120, retries=2, pause=2.0):
+    """Send one JSON request, retrying brief gateway errors (502/503/504); return the decoded body."""
+    for attempt in range(retries + 1):
+        try:
+            return _request_json(method, url, payload, token, timeout)
+        except ServiceError as error:
+            if error.status not in (502, 503, 504) or attempt == retries: raise
+            time.sleep(pause)
+
+
+def _request_json(method, url, payload, token, timeout):
     headers = {"Content-Type": "application/json"}
     if token: headers["X-Internal-Token"] = token
     data = None if payload is None else json.dumps(payload).encode("utf-8")

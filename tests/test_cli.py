@@ -54,7 +54,7 @@ def test_find_renders_internal_warning_and_source_location(capsys, library_root,
         def rank(self, goal, candidates):
             raise RuntimeError("unavailable for deterministic CLI rendering test")
 
-    monkeypatch.setattr("library_finder.cli.LayaRanker", UnavailableRanker)
+    monkeypatch.setattr("library_finder.cli.ranker_factory", lambda root: UnavailableRanker)
 
     assert main(["find", "click locator", "--catalog", str(destination)]) == 0
     output = capsys.readouterr().out
@@ -95,7 +95,7 @@ def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_roo
                 ]
             }
 
-    monkeypatch.setattr("library_finder.cli.LayaRanker", LowConfidenceRanker)
+    monkeypatch.setattr("library_finder.cli.ranker_factory", lambda root: LowConfidenceRanker)
     monkeypatch.setattr("library_finder.cli.configured_threshold", lambda _: 0.5)
 
     assert main(["find", "click locator", "--catalog", str(destination)]) == 0

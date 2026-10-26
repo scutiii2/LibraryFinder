@@ -60,9 +60,11 @@ def configured_workers(project_root: Path) -> int:
 def load_env(project_root: Path) -> None:
     """Load KEY=VALUE lines from <project_root>/.env into os.environ; variables already set win."""
     try:
-        lines = (project_root / ".env").read_text(encoding="utf-8").splitlines()
+        raw = (project_root / ".env").read_bytes()
     except FileNotFoundError:
         return
+    # PowerShell's `>` writes UTF-16 with a BOM; accept that and UTF-8 with or without a BOM.
+    lines = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig").splitlines()
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line: continue

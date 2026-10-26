@@ -83,6 +83,8 @@ class LayaServiceRanker(LayaRanker):
         return self
 
     def _predict(self, text: str, questions: dict) -> dict:
+        # The service defines its own labels and rejects a `labels` field (HTTP 422).
+        questions = {name: {key: value for key, value in spec.items() if key != "labels"} for name, spec in questions.items()}
         try:
             return request_json("POST", self.url + "/v1/ask", {"strategy": "auto", "text": text, "questions": questions},
                                 token=self.token, timeout=self.timeout)

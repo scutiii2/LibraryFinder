@@ -1,6 +1,16 @@
 from pathlib import Path
 
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_service_env(monkeypatch):
+    """Keep the real .env and service variables from leaking into, or out of, any test."""
+    clean = {key: value for key, value in os.environ.items()
+             if key not in ("MINICPM_URL", "LAYA_URL", "MINICPM_TOKEN", "LAYA_TOKEN")}
+    monkeypatch.setattr(os, "environ", clean)
 
 
 @pytest.fixture

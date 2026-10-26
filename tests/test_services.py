@@ -123,3 +123,31 @@ def test_env_file_supplies_urls_and_tokens_without_overriding_real_environment(t
     assert settings["laya_url"] == "http://real:9120"
     assert os.environ["MINICPM_TOKEN"] == "tok"
     assert enrichment_factory(tmp_path)().token == "tok"
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-8-sig", "utf-8"])
+def test_env_file_accepts_powershell_and_bom_encodings(tmp_path, monkeypatch, encoding):
+    import os
+    monkeypatch.setattr(os, "environ", {})
+    (tmp_path / ".env").write_bytes("MINICPM_URL=http://10.0.0.5:9130\r\n".encode(encoding))
+    assert configured_backends(tmp_path)["minicpm_url"] == "http://10.0.0.5:9130"
+
+
+def test_laya_service_ranker_omits_labels_the_service_rejects(service):
+    service.replies = [(200, {"status": "ok"}), (200, {"answers": {"fit": {"noul": 0.7}}})]
+    LayaServiceRanker(service.url).rank("find", (_method(),))
+    ask = next(item for item in service.seen if item[1] == "/v1/ask")
+    assert "labels" not in ask[2]["questions"]["fit"]
+
+
+def test_gateway_errors_are_retried_then_succeed(service, monkeypatch):
+    monkeypatch.setattr("library_finder.http_json.time.sleep", lambda _: None)
+    service.replies = [(502, {}), (503, {}), (200, {"content": json.dumps(GOOD), "finish_reason": "stop"})]
+    assert MiniCPMClient(service.url).enrich(_method()).summary == "s"
+    assert len(service.seen) == 3
+
+
+def test_minicpm_prompt_has_no_template_values_to_copy():
+    from library_finder.minicpm import build_minicpm_prompt
+    prompt = build_minicpm_prompt(_method())
+    assert "parameter: description" not in prompt and "short summary" not in prompt

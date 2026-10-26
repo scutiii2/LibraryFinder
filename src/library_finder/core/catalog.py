@@ -8,7 +8,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from library_finder.models import Catalog
+from library_finder.core.models import Catalog
 
 
 def save_catalog(catalog: Catalog, destination: Path) -> None:

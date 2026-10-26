@@ -19,19 +19,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from library_finder.cli import read_config, configured_source, configured_sources, configured_threshold, configured_workers, configured_backends, enrichment_factory, ranker_factory as configured_ranker_factory
-from library_finder.sources import scan_sources, normalize_sources, catalog_roots
-from library_finder.parallel_catalog import enrich_parallel
-from library_finder.laya_ranker import LayaRanker
-from library_finder.scanner import scan_library
-from library_finder.service import find_methods
-from library_finder.catalog import load_catalog, save_catalog, catalog_health
-from library_finder.enrichment import enrich_catalog
-from library_finder.copilot import CopilotClient
+from library_finder.settings import (PROJECT_ROOT, configured_backends, configured_source, configured_sources,
+                                     configured_threshold, configured_workers, read_config)
+from library_finder.backends.factory import enrichment_factory, ranker_factory as configured_ranker_factory
+from library_finder.core.sources import scan_sources, normalize_sources, catalog_roots
+from library_finder.enrichment.parallel import enrich_parallel
+from library_finder.backends.laya import LayaRanker
+from library_finder.core.scanner import scan_library
+from library_finder.core.service import find_methods
+from library_finder.core.catalog import load_catalog, save_catalog, catalog_health
+from library_finder.enrichment.pipeline import enrich_catalog
+from library_finder.backends.copilot import CopilotClient
 
 
 _STATIC_DIR = Path(__file__).with_name("static")
-_PROJECT_DIR = Path(__file__).resolve().parents[2]
+_PROJECT_DIR = PROJECT_ROOT
 
 
 def create_app(*, source_root: Path | None = None, default_threshold: float | None = None,

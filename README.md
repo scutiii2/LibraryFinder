@@ -5,9 +5,17 @@ Library Finder is a local CLI and web UI for discovering reusable utilities and 
 ## Project layout
 
 ```text
-src/library_finder/   scanner, catalog, search, Copilot transport, CLI and web UI
-tests/                run with: python -m pytest
+src/library_finder/
+  settings.py         project root, configs.json, .env and library-source.txt
+  cli.py              command-line entry point
+  core/               models, scanner, sources, catalog, search, service
+  enrichment/         pipeline.py (catalog enrichment), parallel.py (workers)
+  backends/           copilot, minicpm, laya, http_json, factory (picks the backend)
+  web/                app.py (FastAPI), static/ (the page)
+tests/                mirrors the package; run with: python -m pytest
+docs/                 mockups/ and design/ (plans and specs)
 configs.json.example  default settings; copy to configs.json (local, gitignored) to change them
+.env.example          service URLs and tokens; copy to .env (local, gitignored)
 run.bat               one-click launcher for the web UI
 VERSION               application version
 catalog.json          generated catalog (local, gitignored)

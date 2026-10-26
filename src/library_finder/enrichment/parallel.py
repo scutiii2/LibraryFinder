@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
 
-from library_finder.enrichment import enrich_catalog, EnrichmentSummary
+from library_finder.enrichment.pipeline import enrich_catalog, EnrichmentSummary
 
 
 def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint=None,

@@ -4,11 +4,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from library_finder.cli import configured_backends, enrichment_factory, ranker_factory
-from library_finder.copilot import CopilotClient, CopilotResponseError, CopilotUnavailable
-from library_finder.laya_ranker import LayaRanker, LayaServiceRanker
-from library_finder.minicpm import MiniCPMClient
-from library_finder.models import MethodRecord
+from library_finder.backends.factory import enrichment_factory, ranker_factory
+from library_finder.settings import configured_backends
+from library_finder.backends.copilot import CopilotClient, CopilotResponseError, CopilotUnavailable
+from library_finder.backends.laya import LayaRanker, LayaServiceRanker
+from library_finder.backends.minicpm import MiniCPMClient
+from library_finder.core.models import MethodRecord
 
 GOOD = {"summary": "s", "purpose": "p", "inputs": [], "outputs": [], "side_effects": [],
         "automation_context": "c", "keywords": ["k"], "caveats": []}
@@ -141,13 +142,13 @@ def test_laya_service_ranker_omits_labels_the_service_rejects(service):
 
 
 def test_gateway_errors_are_retried_then_succeed(service, monkeypatch):
-    monkeypatch.setattr("library_finder.http_json.time.sleep", lambda _: None)
+    monkeypatch.setattr("library_finder.backends.http_json.time.sleep", lambda _: None)
     service.replies = [(502, {}), (503, {}), (200, {"content": json.dumps(GOOD), "finish_reason": "stop"})]
     assert MiniCPMClient(service.url).enrich(_method()).summary == "s"
     assert len(service.seen) == 3
 
 
 def test_minicpm_prompt_has_no_template_values_to_copy():
-    from library_finder.minicpm import build_minicpm_prompt
+    from library_finder.backends.minicpm import build_minicpm_prompt
     prompt = build_minicpm_prompt(_method())
     assert "parameter: description" not in prompt and "short summary" not in prompt

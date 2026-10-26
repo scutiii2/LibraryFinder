@@ -3,120 +3,18 @@
 from __future__ import annotations
 
 import argparse
-import json
-import os
 from pathlib import Path
 from typing import Sequence
 
-from library_finder.catalog import load_catalog, save_catalog, stale_files
-from library_finder.scanner import scan_library
-from library_finder.sources import scan_sources, catalog_roots
-from library_finder.search import retrieve
-from library_finder.laya_ranker import LayaRanker
-from library_finder.service import find_methods
-from library_finder.enrichment import enrich_catalog
-from library_finder.copilot import CopilotClient
-
-
-def _default_source() -> Path:
-    return configured_source(Path(__file__).resolve().parents[2])
-
-
-def configured_source(project_root: Path) -> Path:
-    """Return the saved source directory, or the adjacent SBM default."""
-    return configured_sources(project_root)[0]
-
-
-def configured_sources(project_root: Path) -> tuple[Path, ...]:
-    setting = project_root / "library-source.txt"
-    if setting.is_file():
-        value = setting.read_text(encoding="utf-8").strip()
-        if value:
-            return tuple(dict.fromkeys(Path(line.strip()).expanduser().resolve() for line in value.splitlines() if line.strip()))
-    return (project_root.parent / "SBM-Selenium-Automation-1" / "libs",)
-
-
-def read_config(project_root: Path) -> dict:
-    """Return configs.json (your local, untracked settings), or the tracked configs.json.example until it exists."""
-    for name in ("configs.json", "configs.json.example"):
-        try:
-            return json.loads((project_root / name).read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            continue
-    raise FileNotFoundError("configs.json")
-
-
-def configured_threshold(project_root: Path) -> float:
-    """Return the strict Laya pass threshold from the project configuration."""
-    try:
-        config = read_config(project_root)
-        threshold = config["confidence_threshold"]
-    except (FileNotFoundError, KeyError, json.JSONDecodeError) as error:
-        raise ValueError("configs.json must define confidence_threshold") from error
-    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
-        raise ValueError("confidence_threshold must be a number from 0 through 1")
-    return float(threshold)
-
-
-def configured_workers(project_root: Path) -> int:
-    config = read_config(project_root)
-    # `copilot_workers` is the old name of this setting.
-    workers = config.get("catalog_workers", config.get("copilot_workers", 1))
-    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 5:
-        raise ValueError("catalog_workers must be an integer from 1 through 5")
-    return workers
-
-
-def load_env(project_root: Path) -> None:
-    """Load KEY=VALUE lines from <project_root>/.env into os.environ; variables already set win."""
-    try:
-        raw = (project_root / ".env").read_bytes()
-    except FileNotFoundError:
-        return
-    # PowerShell's `>` writes UTF-16 with a BOM; accept that and UTF-8 with or without a BOM.
-    lines = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig").splitlines()
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line: continue
-        key, value = line.split("=", 1)
-        key, value = key.strip().removeprefix("export ").strip(), value.strip().strip("\"'")
-        if key and value: os.environ.setdefault(key, value)
-
-
-def configured_backends(project_root: Path) -> dict:
-    """Backend choices: environment (.env) over configs.json over local defaults (Copilot browser, in-process Laya)."""
-    load_env(project_root)
-    try:
-        config = read_config(project_root)
-    except (FileNotFoundError, json.JSONDecodeError):
-        config = {}
-    settings = {"enrichment_backend": config.get("enrichment_backend", "copilot"),
-                "minicpm_url": os.environ.get("MINICPM_URL") or config.get("minicpm_url", "http://127.0.0.1:9130"),
-                "laya_backend": config.get("laya_backend", "local"),
-                "laya_url": os.environ.get("LAYA_URL") or config.get("laya_url", "http://127.0.0.1:9120")}
-    if settings["enrichment_backend"] not in ("copilot", "minicpm"):
-        raise ValueError("enrichment_backend must be copilot or minicpm")
-    if settings["laya_backend"] not in ("local", "service"):
-        raise ValueError("laya_backend must be local or service")
-    return settings
-
-
-def enrichment_factory(project_root: Path):
-    """Return a zero-argument callable that builds the configured catalog client."""
-    settings = configured_backends(project_root)
-    if settings["enrichment_backend"] == "minicpm":
-        from library_finder.minicpm import MiniCPMClient
-        return lambda: MiniCPMClient(settings["minicpm_url"])
-    return CopilotClient
-
-
-def ranker_factory(project_root: Path):
-    """Return the Laya ranker class or factory (accepts on_evaluation=) for the configured backend."""
-    settings = configured_backends(project_root)
-    if settings["laya_backend"] == "service":
-        from library_finder.laya_ranker import LayaServiceRanker
-        return lambda on_evaluation=None: LayaServiceRanker(settings["laya_url"], on_evaluation=on_evaluation)
-    return LayaRanker
+from library_finder.core.catalog import load_catalog, save_catalog, stale_files
+from library_finder.core.scanner import scan_library
+from library_finder.core.sources import scan_sources, catalog_roots
+from library_finder.core.search import retrieve
+from library_finder.core.service import find_methods
+from library_finder.backends.factory import enrichment_factory, ranker_factory
+from library_finder.enrichment.pipeline import enrich_catalog
+from library_finder.settings import (PROJECT_ROOT, configured_backends, configured_sources,
+                                     configured_threshold, configured_workers)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -139,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "catalog":
-        roots = args.source or configured_sources(Path(__file__).resolve().parents[2])
+        roots = args.source or configured_sources(PROJECT_ROOT)
         scanned = scan_sources(roots)
         previous = None
         if args.catalog.is_file():
@@ -152,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             catalog = scanned
             summary = None
         else:
-            root = Path(__file__).resolve().parents[2]
+            root = PROJECT_ROOT
             factory = enrichment_factory(root)
             if configured_backends(root)["enrichment_backend"] == "minicpm":
                 print("Cataloging sends changed source snippets to the configured MiniCPM service.")
@@ -160,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("Cataloging sends changed source snippets to your signed-in Microsoft 365 Copilot account.")
             workers = configured_workers(root)
             if workers > 1:
-                from library_finder.parallel_catalog import enrich_parallel
+                from library_finder.enrichment.parallel import enrich_parallel
                 catalog, summary, deleted = enrich_parallel(scanned, previous, factory, workers,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
                 save_catalog(catalog, args.catalog)
@@ -182,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if summary.pending:
                 print("Catalog build interrupted; successful results saved. Copilot window retained for inspection.")
         return 1 if args.strict and (catalog.errors or (summary and summary.failed)) else 0
-    threshold = configured_threshold(Path(__file__).resolve().parents[2])
+    threshold = configured_threshold(PROJECT_ROOT)
     catalog = load_catalog(args.catalog)
     stale = stale_files(catalog)
     if stale:
@@ -198,7 +96,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         decision = "Passed" if confidence > threshold else "Decline"
         print(f"[({current}/{total}) {record.qualified_name} — {record.file}:{record.line}] {confidence:.2f} {decision}")
 
-    result = find_methods(args.goal, catalog, ranker_factory(Path(__file__).resolve().parents[2])(on_evaluation=print_laya_evaluation))
+    result = find_methods(args.goal, catalog, ranker_factory(PROJECT_ROOT)(on_evaluation=print_laya_evaluation))
     for warning in result.warnings:
         print(f"WARNING: {warning}")
     if result.used_laya:

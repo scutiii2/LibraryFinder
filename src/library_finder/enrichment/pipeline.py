@@ -2,7 +2,7 @@
 from dataclasses import dataclass, replace
 from typing import Protocol
 
-from library_finder.models import Catalog, CopilotEnrichment, MethodRecord
+from library_finder.core.models import Catalog, CopilotEnrichment, MethodRecord
 
 
 class CopilotClient(Protocol):
@@ -60,7 +60,7 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: CopilotCl
                         if batch and (len(batch) == 5 or chars + size > 24000): break
                         batch.append(candidate); chars += size
                     batch_results.update(client.enrich_batch(tuple(batch)))
-                from library_finder.copilot import CopilotResponseError
+                from library_finder.backends.copilot import CopilotResponseError
                 value = batch_results.pop(method.qualified_name, CopilotResponseError("Copilot omitted this method from the batch"))
                 if isinstance(value, CopilotResponseError) and "omitted" in str(value):
                     # One single-method retry for a method Copilot left out of the batch.
@@ -70,18 +70,18 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: CopilotCl
                 value = client.enrich(method)
             methods.append(replace(method, enrichment=value, enrichment_status="success")); enriched += 1
         except Exception as error:
-            from library_finder.copilot import CopilotCancelled
+            from library_finder.backends.copilot import CopilotCancelled
             if isinstance(error, CopilotCancelled):
                 interrupted = True
                 methods.append(replace(method, enrichment=None, enrichment_status="pending")); pending += 1
                 checkpoint()
                 continue
-            from library_finder.copilot import CopilotTimeout
+            from library_finder.backends.copilot import CopilotTimeout
             if isinstance(error, CopilotTimeout) or getattr(client, "interrupted", False):
                 interrupted = True
             methods.append(replace(method, enrichment=None, enrichment_status="error")); failed += 1
             if on_error:
-                from library_finder.copilot import CopilotUnavailable, CopilotResponseError
+                from library_finder.backends.copilot import CopilotUnavailable, CopilotResponseError
                 # Browser exceptions can contain prompt text. Expose only controlled messages.
                 reason = str(error) if isinstance(error, (CopilotUnavailable, CopilotResponseError)) else f"Browser/client failure ({type(error).__name__})."
                 on_error(method, reason)

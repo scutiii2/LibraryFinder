@@ -1,5 +1,5 @@
-from library_finder.models import Catalog, MethodRecord
-from library_finder.service import find_methods
+from library_finder.core.models import Catalog, MethodRecord
+from library_finder.core.service import find_methods
 
 
 def _catalog():

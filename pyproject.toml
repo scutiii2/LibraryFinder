@@ -16,7 +16,7 @@ copilot = ["playwright>=1.49"]
 
 [project.scripts]
 library-finder = "library_finder.cli:main"
-library-finder-web = "library_finder.web:run_server"
+library-finder-web = "library_finder.web.app:run_server"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

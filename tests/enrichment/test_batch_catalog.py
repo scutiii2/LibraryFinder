@@ -1,9 +1,9 @@
 import json
 from dataclasses import replace
-from library_finder.scanner import scan_library
-from library_finder.enrichment import enrich_catalog
-from library_finder.copilot import parse_batch, CopilotResponseError, build_batch_prompt
-from library_finder.models import CopilotEnrichment
+from library_finder.core.scanner import scan_library
+from library_finder.enrichment.pipeline import enrich_catalog
+from library_finder.backends.copilot import parse_batch, CopilotResponseError, build_batch_prompt
+from library_finder.core.models import CopilotEnrichment
 
 
 def test_batches_five_methods_and_checkpoints_each_result(library_root):

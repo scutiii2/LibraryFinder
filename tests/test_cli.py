@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from library_finder.cli import configured_source, configured_threshold, main
+from library_finder.cli import main
+from library_finder.settings import configured_source, configured_threshold
 
 
 def test_configured_source_uses_saved_library_directory(tmp_path):
@@ -113,7 +114,7 @@ def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_roo
 
 
 def test_settings_fall_back_to_tracked_example_until_configs_json_exists(tmp_path):
-    from library_finder.cli import configured_threshold, configured_workers
+    from library_finder.settings import configured_threshold, configured_workers
     (tmp_path / "configs.json.example").write_text('{"confidence_threshold": 0.4, "catalog_workers": 2}', encoding="utf-8")
     assert configured_threshold(tmp_path) == 0.4 and configured_workers(tmp_path) == 2
     (tmp_path / "configs.json").write_text('{"confidence_threshold": 0.9}', encoding="utf-8")

@@ -1,6 +1,6 @@
-from library_finder.catalog import load_catalog, save_catalog, stale_files
-from library_finder.scanner import scan_library
-from library_finder.catalog import catalog_health
+from library_finder.core.catalog import load_catalog, save_catalog, stale_files
+from library_finder.core.scanner import scan_library
+from library_finder.core.catalog import catalog_health
 
 
 def test_health_detects_new_changed_and_incomplete_methods(library_root):

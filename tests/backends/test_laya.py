@@ -1,5 +1,5 @@
-from library_finder.laya_ranker import LayaRanker
-from library_finder.models import MethodRecord
+from library_finder.backends.laya import LayaRanker
+from library_finder.core.models import MethodRecord
 
 
 def _method(name):

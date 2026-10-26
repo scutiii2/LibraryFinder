@@ -2,8 +2,8 @@
 import json
 import os
 
-from library_finder.copilot import CopilotResponseError, CopilotUnavailable, parse_enrichment
-from library_finder.http_json import ServiceError, ServiceUnreachable, request_json
+from library_finder.backends.copilot import CopilotResponseError, CopilotUnavailable, parse_enrichment
+from library_finder.backends.http_json import ServiceError, ServiceUnreachable, request_json
 
 DEFAULT_URL = "http://127.0.0.1:9130"
 # A 1B model gets a shorter source snippet than Copilot's 12,000 characters.

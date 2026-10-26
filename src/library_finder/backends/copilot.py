@@ -8,7 +8,8 @@ from threading import Lock
 from pathlib import Path
 from urllib.parse import urlparse
 
-from library_finder.models import CopilotEnrichment, MethodRecord
+from library_finder.settings import PROJECT_ROOT
+from library_finder.core.models import CopilotEnrichment, MethodRecord
 
 M365_URL = "https://m365.cloud.microsoft/chat"
 REQUIRED = {"summary", "purpose", "inputs", "outputs", "side_effects", "automation_context", "keywords", "caveats"}
@@ -211,7 +212,7 @@ def enter_prompt(page, box, prompt, *, attempts=3):
 #   {"summary": "...", "complete": true}, and ignores prose or a "json" label around the object.
 #   Only needed if the current format-retry and Try Again handling starts failing on bad JSON.
 class CopilotClient:
-    def __init__(self, profile: Path | None = None): self.profile = profile or Path(__file__).resolve().parents[2] / ".profiles/copilot"; self.page = None; self._pw = None; self.conversation_url = None; self.interrupted = False
+    def __init__(self, profile: Path | None = None): self.profile = profile or PROJECT_ROOT / ".profiles/copilot"; self.page = None; self._pw = None; self.conversation_url = None; self.interrupted = False
     def start(self):
         with _BROWSER_START_LOCK:
             self._start()

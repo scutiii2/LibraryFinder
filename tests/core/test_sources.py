@@ -1,6 +1,7 @@
-from library_finder.sources import scan_sources, normalize_sources
-from library_finder.catalog import save_catalog, load_catalog, catalog_health, stale_files
-from library_finder.cli import main, configured_sources
+from library_finder.core.sources import scan_sources, normalize_sources
+from library_finder.core.catalog import save_catalog, load_catalog, catalog_health, stale_files
+from library_finder.cli import main
+from library_finder.settings import configured_sources
 
 
 def test_two_same_named_libraries_remain_distinct_and_round_trip(tmp_path):

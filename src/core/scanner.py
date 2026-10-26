@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from library_finder.core.models import Catalog, FileRecord, MethodRecord, ScanError
+from core.models import Catalog, FileRecord, MethodRecord, ScanError
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 

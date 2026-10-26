@@ -1,4 +1,4 @@
-"""Project root, configs.json, .env and library-source.txt: the one place settings are read."""
+"""Project root, configs.json, .env and the local data/ folder: the one place settings and paths are defined."""
 
 from __future__ import annotations
 
@@ -6,8 +6,14 @@ import json
 import os
 from pathlib import Path
 
-# <repo>/src/library_finder/settings.py -> <repo>
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# <repo>/src/settings.py -> <repo>
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Local state (catalog, saved library paths, Copilot browser profile); gitignored.
+DATA_DIR = PROJECT_ROOT / "data"
+
+
+def state_dir(project_root: Path) -> Path:
+    return project_root / "data"
 
 
 def configured_source(project_root: Path) -> Path:
@@ -16,7 +22,7 @@ def configured_source(project_root: Path) -> Path:
 
 
 def configured_sources(project_root: Path) -> tuple[Path, ...]:
-    setting = project_root / "library-source.txt"
+    setting = state_dir(project_root) / "library-source.txt"
     if setting.is_file():
         value = setting.read_text(encoding="utf-8").strip()
         if value:

@@ -1,4 +1,4 @@
-from library_finder.core.scanner import scan_library
+from core.scanner import scan_library
 
 
 def test_scanner_records_inheritance_public_private_methods_and_effects(library_root):

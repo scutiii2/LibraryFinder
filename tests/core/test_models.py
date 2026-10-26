@@ -1,4 +1,4 @@
-from library_finder.core.models import Catalog, FileRecord, MethodRecord
+from core.models import Catalog, FileRecord, MethodRecord
 
 
 def test_catalog_round_trip_preserves_private_method_and_effects():

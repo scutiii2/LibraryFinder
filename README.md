@@ -5,21 +5,20 @@ Library Finder is a local CLI and web UI for discovering reusable utilities and 
 ## Project layout
 
 ```text
-src/library_finder/
-  settings.py         project root, configs.json, .env and library-source.txt
+src/
+  settings.py         project root, configs.json, .env and the data/ folder
   cli.py              command-line entry point
   core/               models, scanner, sources, catalog, search, service
   enrichment/         pipeline.py (catalog enrichment), parallel.py (workers)
   backends/           copilot, minicpm, laya, http_json, factory (picks the backend)
   web/                app.py (FastAPI), static/ (the page)
-tests/                mirrors the package; run with: python -m pytest
+tests/                mirrors src/; run with: python -m pytest
 docs/                 mockups/ and design/ (plans and specs)
 configs.json.example  default settings; copy to configs.json (local, gitignored) to change them
 .env.example          service URLs and tokens; copy to .env (local, gitignored)
 run.bat               one-click launcher for the web UI
 VERSION               application version
-catalog.json          generated catalog (local, gitignored)
-library-source.txt    library directories saved in Settings (local, gitignored)
+data/                 local, gitignored: catalog.json, library-source.txt, copilot-profile/
 ```
 
 ## Requirements
@@ -27,7 +26,7 @@ library-source.txt    library directories saved in Settings (local, gitignored)
 - Windows with Python 3.11 or newer.
 - Microsoft Edge and a Microsoft 365 Copilot account, only for AI-assisted cataloging. Use `catalog --no-copilot` to skip it.
 
-Local data stays on this machine: `.profiles/` (signed-in Edge profile) and `catalog.json` are gitignored. See [SECURITY.md](SECURITY.md).
+Local data stays on this machine: `data/` (the catalog, saved library paths and the signed-in Edge profile) is gitignored. See [SECURITY.md](SECURITY.md).
 
 ## Model services (optional)
 
@@ -57,7 +56,7 @@ Multiple libraries: in Settings, enter one library directory per line, save, the
 CLI example (uses the project virtual environment):
 
 ```powershell
-.\.venv\Scripts\library-finder.exe catalog --source "C:\libraries\first" "D:\libraries\second" --no-copilot
+python src/cli.py catalog --source "C:\libraries\first" "D:\libraries\second" --no-copilot
 ```
 
 Omit `--no-copilot` for AI-assisted cataloging. Without `--source`, the CLI uses the directories saved in Settings.
@@ -75,9 +74,9 @@ python -m pip install -e ".[dev,laya,copilot]"
 From this directory:
 
 ```powershell
-python -m library_finder.cli catalog
-python -m library_finder.cli find "wait for a ticket element and click it"
-python -m library_finder.cli show libs.drivers.TicketDriver.some_method
+python src/cli.py catalog
+python src/cli.py find "wait for a ticket element and click it"
+python src/cli.py show libs.drivers.TicketDriver.some_method
 ```
 
 Settings live in `configs.json`, which is local and gitignored. Until you create it, the tracked `configs.json.example` is used; copy it to `configs.json` to change values. Set the strict Laya pass threshold there. A method passes only when
@@ -104,7 +103,7 @@ library locally, streams Laya decisions to the page, and uses `configs.json` as
 the default confidence threshold. A threshold entered in the page applies only
 to that search and does not modify the configuration file.
 
-`catalog` writes `catalog.json` locally. By default it sends a bounded snippet for each initially discovered method to the signed-in Microsoft 365 Copilot account in Library Finder's dedicated Edge profile, then reuses unchanged explanations and only resubmits new, changed, or previously failed methods. The catalog conversation is deleted when the run finishes; a deletion warning means it could not be confirmed and should be checked manually. Use `catalog --no-copilot` for AST-only cataloging, or `catalog --strict` to fail for source or enrichment failures. `find` warns when library files have changed since the catalog was built.
+`catalog` writes `data/catalog.json` locally. By default it sends a bounded snippet for each initially discovered method to the signed-in Microsoft 365 Copilot account in Library Finder's dedicated Edge profile, then reuses unchanged explanations and only resubmits new, changed, or previously failed methods. The catalog conversation is deleted when the run finishes; a deletion warning means it could not be confirmed and should be checked manually. Use `catalog --no-copilot` for AST-only cataloging, or `catalog --strict` to fail for source or enrichment failures. `find` warns when library files have changed since the catalog was built.
 
 Methods beginning with `_` are searchable but display `INTERNAL`; they may be unstable. Results are advisory and include source locations, inferred side effects, and setup implications. The CLI first retrieves from its local catalog, then attempts local Laya ranking. If Laya is not installed, fails, or returns an uncertain/invalid choice, deterministic results remain available.
 

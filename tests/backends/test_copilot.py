@@ -1,6 +1,6 @@
 import pytest
-from library_finder.backends.copilot import CopilotResponseError, parse_enrichment
-from library_finder.backends.copilot import wait_for_reply
+from backends.copilot import CopilotResponseError, parse_enrichment
+from backends.copilot import wait_for_reply
 
 
 def test_wait_ignores_previous_reply_and_waits_for_new_completion():
@@ -68,7 +68,7 @@ def test_parse_enrichment_accepts_parameter_descriptions_from_copilot_sample():
 
 
 def test_interrupted_close_does_not_delete_or_close_copilot_tab():
-    from library_finder.backends.copilot import CopilotClient
+    from backends.copilot import CopilotClient
     class Page:
         def close(self): raise AssertionError("Must retain interrupted tab")
     class Connection:
@@ -85,7 +85,7 @@ def test_interrupted_close_does_not_delete_or_close_copilot_tab():
 
 
 def test_browser_step_failure_pauses_build_and_reports_stage_without_prompt(monkeypatch):
-    from library_finder.backends.copilot import CopilotClient, CopilotUnavailable
+    from backends.copilot import CopilotClient, CopilotUnavailable
     client = CopilotClient()
     def failing(method):
         client._stage = "pressing Send"
@@ -98,7 +98,7 @@ def test_browser_step_failure_pauses_build_and_reports_stage_without_prompt(monk
 
 
 def test_prompt_insertion_preserves_long_multiline_text_and_checks_editor():
-    from library_finder.backends.copilot import enter_prompt, CopilotUnavailable
+    from backends.copilot import enter_prompt, CopilotUnavailable
     from types import SimpleNamespace
     class Editor:
         text = "old draft"
@@ -121,7 +121,7 @@ def test_prompt_insertion_preserves_long_multiline_text_and_checks_editor():
 
 
 def test_prompt_insertion_recovers_when_theme_rerender_clears_editor():
-    from library_finder.backends.copilot import enter_prompt
+    from backends.copilot import enter_prompt
     from types import SimpleNamespace
     class Editor:
         text = ""
@@ -147,7 +147,7 @@ def test_prompt_insertion_recovers_when_theme_rerender_clears_editor():
 
 
 def test_prompt_verification_ignores_observed_trailing_copilot_sentinels():
-    from library_finder.backends.copilot import enter_prompt
+    from backends.copilot import enter_prompt
     from types import SimpleNamespace
     class Editor:
         text = ""
@@ -164,7 +164,7 @@ def test_prompt_verification_ignores_observed_trailing_copilot_sentinels():
 
 
 def test_send_refuses_ambiguous_visible_controls():
-    from library_finder.backends.copilot import send_prompt, CopilotUnavailable
+    from backends.copilot import send_prompt, CopilotUnavailable
     from types import SimpleNamespace
     class Controls:
         @property
@@ -180,7 +180,7 @@ def test_send_refuses_ambiguous_visible_controls():
 
 
 def test_browser_failure_classification_omits_private_error_content():
-    from library_finder.backends.copilot import browser_failure_reason
+    from backends.copilot import browser_failure_reason
     assert browser_failure_reason(RuntimeError("strict mode violation private prompt")) == "The page matched multiple controls instead of one."
     assert browser_failure_reason(RuntimeError("Target page, context or browser has been closed")) == "The Copilot tab or browser connection was closed."
 
@@ -192,14 +192,14 @@ def test_parse_accepts_single_fenced_json_object(fence):
 
 
 def test_reply_decoder_does_not_extract_json_from_arbitrary_prose():
-    from library_finder.backends.copilot import decode_reply
+    from backends.copilot import decode_reply
     import json
     with pytest.raises(json.JSONDecodeError):
         decode_reply('Here is some JSON: {"summary":"s"}')
 
 
 def test_invalid_format_gets_only_one_correction_request(monkeypatch):
-    from library_finder.backends.copilot import CopilotClient, CopilotResponseError
+    from backends.copilot import CopilotClient, CopilotResponseError
     client = CopilotClient()
     calls = []
     def invalid(method):
@@ -211,7 +211,7 @@ def test_invalid_format_gets_only_one_correction_request(monkeypatch):
 
 
 def test_timeout_does_not_trigger_format_retry(monkeypatch):
-    from library_finder.backends.copilot import CopilotClient, CopilotTimeout
+    from backends.copilot import CopilotClient, CopilotTimeout
     client = CopilotClient()
     calls = []
     def timeout(method):
@@ -223,7 +223,7 @@ def test_timeout_does_not_trigger_format_retry(monkeypatch):
 
 
 def test_invalid_reply_uses_regeneration_before_sending_correction(monkeypatch):
-    from library_finder.backends.copilot import CopilotClient, CopilotResponseError
+    from backends.copilot import CopilotClient, CopilotResponseError
     client = CopilotClient()
     calls = []
     def invalid(method):
@@ -236,7 +236,7 @@ def test_invalid_reply_uses_regeneration_before_sending_correction(monkeypatch):
 
 
 def test_failed_regeneration_is_not_repeated(monkeypatch):
-    from library_finder.backends.copilot import CopilotClient, CopilotResponseError
+    from backends.copilot import CopilotClient, CopilotResponseError
     client = CopilotClient()
     calls = []
     def invalid(method): raise CopilotResponseError("invalid JSON")
@@ -250,7 +250,7 @@ def test_failed_regeneration_is_not_repeated(monkeypatch):
 
 
 def test_hidden_stop_controls_do_not_block_completed_reply():
-    from library_finder.backends.copilot import is_generating
+    from backends.copilot import is_generating
     from types import SimpleNamespace
     hidden = SimpleNamespace(is_visible=lambda: False)
     visible = SimpleNamespace(is_visible=lambda: True)
@@ -262,7 +262,7 @@ def test_hidden_stop_controls_do_not_block_completed_reply():
 
 
 def test_cancel_exits_reply_wait_before_reading_or_sleeping():
-    from library_finder.backends.copilot import CopilotCancelled
+    from backends.copilot import CopilotCancelled
     with pytest.raises(CopilotCancelled):
         wait_for_reply(lambda: pytest.fail("Must stop reading"), 0, 0,
                        should_cancel=lambda: True,
@@ -270,14 +270,14 @@ def test_cancel_exits_reply_wait_before_reading_or_sleeping():
 
 
 def test_attribute_or_none_returns_none_when_the_element_is_gone():
-    from library_finder.backends.copilot import attribute_or_none
+    from backends.copilot import attribute_or_none
     class Gone:
         def get_attribute(self, name, timeout=None): raise TimeoutError("detached")
     assert attribute_or_none(Gone(), "aria-label") is None
 
 
 def test_conversation_url_waits_for_the_chat_id_after_the_reply():
-    from library_finder.backends.copilot import CopilotClient
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     urls = iter(["https://m365.cloud.microsoft/chat"] * 2 + ["https://m365.cloud.microsoft/chat/conversation/abc"] * 50)
     class Page:

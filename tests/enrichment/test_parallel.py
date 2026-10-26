@@ -2,10 +2,10 @@ from threading import Barrier, get_ident
 from dataclasses import replace
 import pytest
 
-from library_finder.enrichment.parallel import enrich_parallel
-from library_finder.settings import configured_workers
-from library_finder.core.scanner import scan_library
-from library_finder.core.models import CopilotEnrichment
+from enrichment.parallel import enrich_parallel
+from settings import configured_workers
+from core.scanner import scan_library
+from core.models import CopilotEnrichment
 
 
 def test_two_workers_process_once_and_preserve_all_checkpoints(library_root):
@@ -53,7 +53,7 @@ def test_worker_setting_accepts_five(tmp_path):
 
 def test_method_is_durable_before_next_request_while_other_worker_is_busy(library_root, tmp_path):
     from threading import Event
-    from library_finder.core.catalog import save_catalog, load_catalog
+    from core.catalog import save_catalog, load_catalog
     scanned = scan_library(library_root)
     target = tmp_path / "catalog.json"
     first_saved = Event()
@@ -84,7 +84,7 @@ def test_method_is_durable_before_next_request_while_other_worker_is_busy(librar
 
 
 def test_old_copilot_workers_name_still_works_and_new_name_wins(tmp_path):
-    from library_finder.settings import configured_workers
+    from settings import configured_workers
     (tmp_path / "configs.json").write_text('{"copilot_workers":3}')
     assert configured_workers(tmp_path) == 3
     (tmp_path / "configs.json").write_text('{"copilot_workers":3,"catalog_workers":2}')

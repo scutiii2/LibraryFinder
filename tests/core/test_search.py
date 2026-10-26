@@ -1,5 +1,5 @@
-from library_finder.core.models import Catalog, MethodRecord
-from library_finder.core.search import retrieve
+from core.models import Catalog, MethodRecord
+from core.search import retrieve
 
 
 def _method(name, visibility="public", keywords=()):

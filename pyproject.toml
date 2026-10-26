@@ -15,9 +15,15 @@ web = ["fastapi", "uvicorn"]
 copilot = ["playwright>=1.49"]
 
 [project.scripts]
-library-finder = "library_finder.cli:main"
-library-finder-web = "library_finder.web.app:run_server"
+library-finder = "cli:main"
+library-finder-web = "web.app:run_server"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src"]
+sources = ["src"]
+dev-mode-dirs = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+cache_dir = "data/pytest-cache"
 testpaths = ["tests"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from library_finder.core.models import Catalog, MethodRecord
+from core.models import Catalog, MethodRecord
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 

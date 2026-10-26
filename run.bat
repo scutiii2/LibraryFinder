@@ -4,6 +4,7 @@ setlocal
 set "PROJECT=%~dp0"
 set "VENV=%~dp0.venv"
 set "PYTHON=py -3.11"
+set "PYTHONPATH=%~dp0src"
 
 pushd "%PROJECT%" || exit /b 1
 
@@ -14,7 +15,7 @@ if not exist "%VENV%\Scripts\python.exe" (
     if errorlevel 1 goto error
 )
 
-"%VENV%\Scripts\python.exe" -c "import library_finder, laya, fastapi, uvicorn" >nul 2>&1
+"%VENV%\Scripts\python.exe" -c "import settings, laya, fastapi, uvicorn" >nul 2>&1
 if errorlevel 1 (
     echo Installing Library-Finder, local Laya support, and the web UI...
     "%VENV%\Scripts\python.exe" -m pip install -e ".[dev,laya,web]"
@@ -26,7 +27,7 @@ echo Starting Library-Finder. The browser opens after Laya is ready.
 echo Press Ctrl+C to stop the server, then R to restart or Q to quit.
 echo If Windows asks "Terminate batch job (Y/N)?", answer N to keep this launcher open.
 echo.
-"%VENV%\Scripts\library-finder-web.exe"
+"%VENV%\Scripts\python.exe" -m web.app
 set "EXIT_CODE=%ERRORLEVEL%"
 
 :restart

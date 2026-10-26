@@ -19,17 +19,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from library_finder.settings import (PROJECT_ROOT, configured_backends, configured_source, configured_sources,
+from settings import (PROJECT_ROOT, state_dir, configured_backends, configured_source, configured_sources,
                                      configured_threshold, configured_workers, read_config)
-from library_finder.backends.factory import enrichment_factory, ranker_factory as configured_ranker_factory
-from library_finder.core.sources import scan_sources, normalize_sources, catalog_roots
-from library_finder.enrichment.parallel import enrich_parallel
-from library_finder.backends.laya import LayaRanker
-from library_finder.core.scanner import scan_library
-from library_finder.core.service import find_methods
-from library_finder.core.catalog import load_catalog, save_catalog, catalog_health
-from library_finder.enrichment.pipeline import enrich_catalog
-from library_finder.backends.copilot import CopilotClient
+from backends.factory import enrichment_factory, ranker_factory as configured_ranker_factory
+from core.sources import scan_sources, normalize_sources, catalog_roots
+from enrichment.parallel import enrich_parallel
+from backends.laya import LayaRanker
+from core.scanner import scan_library
+from core.service import find_methods
+from core.catalog import load_catalog, save_catalog, catalog_health
+from enrichment.pipeline import enrich_catalog
+from backends.copilot import CopilotClient
 
 
 _STATIC_DIR = Path(__file__).with_name("static")
@@ -41,6 +41,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
                copilot_factory: Callable | None = None, data_directory: Path | None = None,
                model_loader: Callable | None = None) -> FastAPI:
     root = Path(data_directory) if data_directory is not None else _PROJECT_DIR
+    state = state_dir(root)
     if copilot_factory is None: copilot_factory = enrichment_factory(root)
     if ranker_factory is LayaRanker: ranker_factory = configured_ranker_factory(root)
     @asynccontextmanager
@@ -63,7 +64,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
     app.state.catalog_lock = threading.Lock()
     app.state.catalog = None
     try:
-        saved = load_catalog(root / "catalog.json")
+        saved = load_catalog(state / "catalog.json")
         if set(catalog_roots(saved)) == set(app.state.source_roots):
             app.state.catalog = saved
     except (OSError, ValueError, KeyError, TypeError):
@@ -103,7 +104,8 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         threshold = payload.get("threshold", app.state.default_threshold)
         if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
             raise HTTPException(422, "Threshold must be a number from 0 through 1.")
-        (root / "library-source.txt").write_text("\n".join(map(str, directories)), encoding="utf-8")
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "library-source.txt").write_text("\n".join(map(str, directories)), encoding="utf-8")
         config_path = root / "configs.json"
         config = read_config(root)
         config["confidence_threshold"] = threshold
@@ -128,7 +130,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         workers = configured_workers(root) if mode == "ai" else 1
         client = copilot_factory() if mode == "ai" and workers == 1 else None
         def checkpoint(catalog):
-            save_catalog(catalog, root / "catalog.json")
+            save_catalog(catalog, state / "catalog.json")
             app.state.catalog = catalog
         deleted = None
         try:
@@ -144,7 +146,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             report({"type": "progress", "stage": "cleanup"})
             if client is not None: deleted = client.close()
         report({"type": "progress", "stage": "saving"})
-        save_catalog(catalog, root / "catalog.json")
+        save_catalog(catalog, state / "catalog.json")
         app.state.catalog = catalog
         return {"methods": len(catalog.methods), "files": len(catalog.files),
                 "errors": len(catalog.errors), "reused": summary.reused,
@@ -301,3 +303,7 @@ class BrowserReadyServer(uvicorn.Server):
 def run_server() -> None:
     server = BrowserReadyServer(uvicorn.Config(create_app(), host="127.0.0.1", port=8000))
     server.run()
+
+
+if __name__ == "__main__":
+    run_server()

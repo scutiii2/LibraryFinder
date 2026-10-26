@@ -1,8 +1,8 @@
 from dataclasses import replace
 
-from library_finder.enrichment.pipeline import enrich_catalog
-from library_finder.core.models import CopilotEnrichment
-from library_finder.core.scanner import scan_library
+from enrichment.pipeline import enrich_catalog
+from core.models import CopilotEnrichment
+from core.scanner import scan_library
 
 
 class FakeCopilot:
@@ -14,7 +14,7 @@ class FakeCopilot:
 
 
 def test_timeout_stops_requests_and_leaves_remaining_methods_pending(library_root):
-    from library_finder.backends.copilot import CopilotTimeout
+    from backends.copilot import CopilotTimeout
     scanned = scan_library(library_root)
     class TimeoutClient:
         calls = 0
@@ -30,7 +30,7 @@ def test_timeout_stops_requests_and_leaves_remaining_methods_pending(library_roo
 
 
 def test_success_is_saved_before_next_method_is_requested(library_root, tmp_path):
-    from library_finder.core.catalog import save_catalog, load_catalog
+    from core.catalog import save_catalog, load_catalog
     scanned = scan_library(library_root)
     destination = tmp_path / "catalog.json"
     class InspectingClient(FakeCopilot):

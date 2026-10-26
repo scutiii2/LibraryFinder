@@ -2,14 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from library_finder.cli import main
-from library_finder.settings import configured_source, configured_threshold
+from cli import main
+from settings import configured_source, configured_threshold
 
 
 def test_configured_source_uses_saved_library_directory(tmp_path):
     source = tmp_path / "alternate-libs"
     source.mkdir()
-    (tmp_path / "library-source.txt").write_text(str(source), encoding="utf-8")
+    (tmp_path / "data").mkdir(exist_ok=True); (tmp_path / "data" / "library-source.txt").write_text(str(source), encoding="utf-8")
 
     assert configured_source(tmp_path) == source
 
@@ -55,7 +55,7 @@ def test_find_renders_internal_warning_and_source_location(capsys, library_root,
         def rank(self, goal, candidates):
             raise RuntimeError("unavailable for deterministic CLI rendering test")
 
-    monkeypatch.setattr("library_finder.cli.ranker_factory", lambda root: UnavailableRanker)
+    monkeypatch.setattr("cli.ranker_factory", lambda root: UnavailableRanker)
 
     assert main(["find", "click locator", "--catalog", str(destination)]) == 0
     output = capsys.readouterr().out
@@ -96,8 +96,8 @@ def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_roo
                 ]
             }
 
-    monkeypatch.setattr("library_finder.cli.ranker_factory", lambda root: LowConfidenceRanker)
-    monkeypatch.setattr("library_finder.cli.configured_threshold", lambda _: 0.5)
+    monkeypatch.setattr("cli.ranker_factory", lambda root: LowConfidenceRanker)
+    monkeypatch.setattr("cli.configured_threshold", lambda _: 0.5)
 
     assert main(["find", "click locator", "--catalog", str(destination)]) == 0
     output = capsys.readouterr().out
@@ -114,7 +114,7 @@ def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_roo
 
 
 def test_settings_fall_back_to_tracked_example_until_configs_json_exists(tmp_path):
-    from library_finder.settings import configured_threshold, configured_workers
+    from settings import configured_threshold, configured_workers
     (tmp_path / "configs.json.example").write_text('{"confidence_threshold": 0.4, "catalog_workers": 2}', encoding="utf-8")
     assert configured_threshold(tmp_path) == 0.4 and configured_workers(tmp_path) == 2
     (tmp_path / "configs.json").write_text('{"confidence_threshold": 0.9}', encoding="utf-8")

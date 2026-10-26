@@ -6,14 +6,14 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from library_finder.core.catalog import load_catalog, save_catalog, stale_files
-from library_finder.core.scanner import scan_library
-from library_finder.core.sources import scan_sources, catalog_roots
-from library_finder.core.search import retrieve
-from library_finder.core.service import find_methods
-from library_finder.backends.factory import enrichment_factory, ranker_factory
-from library_finder.enrichment.pipeline import enrich_catalog
-from library_finder.settings import (PROJECT_ROOT, configured_backends, configured_sources,
+from core.catalog import load_catalog, save_catalog, stale_files
+from core.scanner import scan_library
+from core.sources import scan_sources, catalog_roots
+from core.search import retrieve
+from core.service import find_methods
+from backends.factory import enrichment_factory, ranker_factory
+from enrichment.pipeline import enrich_catalog
+from settings import (DATA_DIR, PROJECT_ROOT, configured_backends, configured_sources,
                                      configured_threshold, configured_workers)
 
 
@@ -22,15 +22,15 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     catalog = commands.add_parser("catalog")
     catalog.add_argument("--source", type=Path, nargs="+", default=None)
-    catalog.add_argument("--catalog", type=Path, default=Path("catalog.json"))
+    catalog.add_argument("--catalog", type=Path, default=DATA_DIR / "catalog.json")
     catalog.add_argument("--strict", action="store_true")
     catalog.add_argument("--no-copilot", action="store_true")
     find = commands.add_parser("find")
     find.add_argument("goal")
-    find.add_argument("--catalog", type=Path, default=Path("catalog.json"))
+    find.add_argument("--catalog", type=Path, default=DATA_DIR / "catalog.json")
     show = commands.add_parser("show")
     show.add_argument("method")
-    show.add_argument("--catalog", type=Path, default=Path("catalog.json"))
+    show.add_argument("--catalog", type=Path, default=DATA_DIR / "catalog.json")
     return parser
 
 
@@ -58,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("Cataloging sends changed source snippets to your signed-in Microsoft 365 Copilot account.")
             workers = configured_workers(root)
             if workers > 1:
-                from library_finder.enrichment.parallel import enrich_parallel
+                from enrichment.parallel import enrich_parallel
                 catalog, summary, deleted = enrich_parallel(scanned, previous, factory, workers,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
                 save_catalog(catalog, args.catalog)

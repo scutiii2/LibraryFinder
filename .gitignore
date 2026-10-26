@@ -4,12 +4,10 @@
 !.gitattributes
 !.env.example
 
-# Local state: catalog, your settings (copy of configs.json.example), library paths, Copilot browser profile
-catalog.json
+# Local state: your settings (copy of configs.json.example) and data/ (catalog, saved library
+# paths, Copilot browser profile, pytest cache)
 configs.json
-library-source.txt
-.profiles/
-tmp*
+data/
 
 # Build output
 dist/

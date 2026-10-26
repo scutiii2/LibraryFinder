@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence
 
-from library_finder.core.models import Catalog, MethodRecord, Recommendation, SearchResult
-from library_finder.core.search import retrieve
+from core.models import Catalog, MethodRecord, Recommendation, SearchResult
+from core.search import retrieve
 
 
 class Ranker(Protocol):

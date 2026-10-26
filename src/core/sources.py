@@ -3,7 +3,7 @@ import hashlib
 from dataclasses import replace
 from pathlib import Path
 
-from library_finder.core.scanner import scan_library
+from core.scanner import scan_library
 
 
 def normalize_sources(values):

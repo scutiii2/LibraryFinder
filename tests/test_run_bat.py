@@ -7,7 +7,7 @@ def test_run_bat_starts_only_the_web_ui_without_arguments_or_command_branches():
     assert 'set "VENV=%~dp0.venv"' in script
     assert '%PYTHON% -m venv "%VENV%"' in script
     assert '"%VENV%\\Scripts\\python.exe" -m pip install -e ".[dev,laya,web]"' in script
-    assert '"%VENV%\\Scripts\\library-finder-web.exe"' in script
+    assert '"%VENV%\\Scripts\\python.exe" -m web.app' in script
     assert "%~1" not in script
     assert "library-finder.exe" not in script
     assert ":directory" not in script

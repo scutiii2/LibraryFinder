@@ -6,8 +6,8 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from library_finder.core.models import Catalog, MethodRecord
-from library_finder.web.app import create_app
+from core.models import Catalog, MethodRecord
+from web.app import create_app
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +16,7 @@ def isolated_web_storage(tmp_path, monkeypatch):
     storage = tmp_path / "web-data"
     storage.mkdir()
     (storage / "configs.json").write_text('{"confidence_threshold":0.65,"catalog_workers":1}')
-    monkeypatch.setattr("library_finder.web.app._PROJECT_DIR", storage)
+    monkeypatch.setattr("web.app._PROJECT_DIR", storage)
 
 
 def _method(name: str, file: str = "driver.py", line: int = 1) -> MethodRecord:
@@ -43,13 +43,13 @@ def test_laya_is_loaded_once_during_server_startup(tmp_path):
 def test_browser_opens_only_after_server_startup_completes(monkeypatch):
     import asyncio
     import uvicorn
-    from library_finder.web.app import BrowserReadyServer
+    from web.app import BrowserReadyServer
     order = []
     async def startup(server, sockets=None):
         order.append("model loaded and server listening")
         server.started = True
     monkeypatch.setattr(uvicorn.Server, "startup", startup)
-    monkeypatch.setattr("library_finder.web.app.webbrowser.open", lambda url: order.append("browser opened"))
+    monkeypatch.setattr("web.app.webbrowser.open", lambda url: order.append("browser opened"))
     server = BrowserReadyServer(uvicorn.Config("unused"))
     asyncio.run(server.startup())
     assert order == ["model loaded and server listening", "browser opened"]
@@ -58,10 +58,10 @@ def test_browser_opens_only_after_server_startup_completes(monkeypatch):
 def test_browser_does_not_open_if_startup_is_not_ready(monkeypatch):
     import asyncio
     import uvicorn
-    from library_finder.web.app import BrowserReadyServer
+    from web.app import BrowserReadyServer
     async def startup(server, sockets=None): pass
     monkeypatch.setattr(uvicorn.Server, "startup", startup)
-    monkeypatch.setattr("library_finder.web.app.webbrowser.open", lambda url: pytest.fail("Server is not ready"))
+    monkeypatch.setattr("web.app.webbrowser.open", lambda url: pytest.fail("Server is not ready"))
     asyncio.run(BrowserReadyServer(uvicorn.Config("unused")).startup())
 
 
@@ -100,7 +100,7 @@ def test_catalog_enriches_with_copilot_and_reports_cleanup(tmp_path):
     class Client:
         conversation_url = "https://m365.cloud.microsoft/chat/conversation/current"
         def enrich(self, method):
-            from library_finder.core.models import CopilotEnrichment
+            from core.models import CopilotEnrichment
             return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self):
             return True
@@ -122,7 +122,7 @@ def test_cancel_catalog_sets_shared_event_only_during_active_build(tmp_path):
 
 
 def test_fast_catalog_does_not_open_copilot(tmp_path, monkeypatch):
-    monkeypatch.setattr("library_finder.web.app.save_catalog", lambda *args: None)
+    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
     def forbidden(): raise AssertionError("Fast mode must not open Copilot")
     app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=forbidden)
     result = _endpoint(app, "/api/catalog")("fast")
@@ -135,10 +135,10 @@ def test_fast_catalog_does_not_open_copilot(tmp_path, monkeypatch):
 
 def test_stream_catalog_reports_method_cleanup_and_completion(tmp_path, monkeypatch):
     import asyncio
-    monkeypatch.setattr("library_finder.web.app.save_catalog", lambda *args: None)
+    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
     class Client:
         def enrich(self, method):
-            from library_finder.core.models import CopilotEnrichment
+            from core.models import CopilotEnrichment
             return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self): return True
     app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=Client)

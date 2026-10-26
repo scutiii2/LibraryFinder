@@ -6,8 +6,8 @@ import os
 from collections.abc import Callable
 from typing import Sequence
 
-from library_finder.backends.http_json import ServiceError, ServiceUnreachable, request_json
-from library_finder.core.models import MethodRecord
+from backends.http_json import ServiceError, ServiceUnreachable, request_json
+from core.models import MethodRecord
 
 
 class LayaRanker:

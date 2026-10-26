@@ -1,7 +1,7 @@
-from library_finder.core.sources import scan_sources, normalize_sources
-from library_finder.core.catalog import save_catalog, load_catalog, catalog_health, stale_files
-from library_finder.cli import main
-from library_finder.settings import configured_sources
+from core.sources import scan_sources, normalize_sources
+from core.catalog import save_catalog, load_catalog, catalog_health, stale_files
+from cli import main
+from settings import configured_sources
 
 
 def test_two_same_named_libraries_remain_distinct_and_round_trip(tmp_path):
@@ -39,5 +39,5 @@ def test_cli_accepts_multiple_sources(tmp_path):
     target = tmp_path / "catalog.json"
     assert main(["catalog", "--no-copilot", "--source", *map(str, roots), "--catalog", str(target)]) == 0
     assert len(load_catalog(target).methods) == 2
-    (tmp_path / "library-source.txt").write_text("\n".join(map(str, roots)))
+    (tmp_path / "data").mkdir(exist_ok=True); (tmp_path / "data" / "library-source.txt").write_text("\n".join(map(str, roots)))
     assert configured_sources(tmp_path) == tuple(roots)

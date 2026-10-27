@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from enrichment.pipeline import enrich_catalog
-from core.models import CopilotEnrichment
+from core.models import Enrichment
 from core.scanner import scan_library
 
 
@@ -10,17 +10,17 @@ class FakeCopilot:
     def enrich(self, method):
         self.calls.append(method.qualified_name)
         if method.qualified_name in self.fail: raise RuntimeError("unavailable")
-        return CopilotEnrichment("ticket utility", "find tickets", (), (), (), "Jaggaer", ("ticket",), ())
+        return Enrichment("ticket utility", "find tickets", (), (), (), "Jaggaer", ("ticket",), ())
 
 
 def test_timeout_stops_requests_and_leaves_remaining_methods_pending(library_root):
-    from backends.copilot import CopilotTimeout
+    from backends.errors import EnrichmentTimeout
     scanned = scan_library(library_root)
     class TimeoutClient:
         calls = 0
         def enrich(self, method):
             self.calls += 1
-            raise CopilotTimeout("timed out")
+            raise EnrichmentTimeout("timed out")
     client = TimeoutClient()
     result, summary = enrich_catalog(scanned, None, client)
     assert client.calls == 1

@@ -1,5 +1,6 @@
 import pytest
-from backends.copilot import CopilotResponseError, parse_enrichment
+from backends.errors import EnrichmentResponseError
+from enrichment.parsing import parse_enrichment
 from backends.copilot import wait_for_reply
 
 
@@ -15,7 +16,7 @@ def test_wait_ignores_previous_reply_and_waits_for_new_completion():
 def test_wait_times_out_instead_of_returning_old_reply():
     clock = [0.0]
     def sleep(seconds): clock[0] += seconds
-    with pytest.raises(CopilotResponseError, match="timed out"):
+    with pytest.raises(EnrichmentResponseError, match="timed out"):
         wait_for_reply(lambda: (1, 1, "old"), 1, 1, timeout_s=2,
                        now=lambda: clock[0], sleep=sleep)
 
@@ -40,31 +41,12 @@ def test_stuck_stop_button_does_not_block_stable_complete_json():
     assert clock[0] >= 10
 
 
-def test_parse_enrichment_accepts_only_complete_json_object():
-    value = parse_enrichment('{"summary":"s","purpose":"p","inputs":[],"outputs":[],"side_effects":[],"automation_context":"c","keywords":[],"caveats":[]}')
-    assert value.purpose == "p"
-    with pytest.raises(CopilotResponseError):
-        parse_enrichment("answer: {}")
 
 
-def test_parse_enrichment_normalizes_text_lists_and_ignores_extra_metadata():
-    import json
-    result = parse_enrichment(json.dumps({"summary":"s", "purpose":"p", "inputs":"self", "outputs":"bool", "side_effects":None, "automation_context":"c", "keywords":["cache"], "caveats":[], "confidence":0.8}))
-    assert result.inputs == ("self",)
-    assert result.outputs == ("bool",)
-    assert result.side_effects == ()
 
 
-def test_parse_enrichment_reports_missing_keys_without_source_values():
-    with pytest.raises(CopilotResponseError, match="Missing fields:.*purpose"):
-        parse_enrichment('{"summary":"private code"}')
 
 
-def test_parse_enrichment_accepts_parameter_descriptions_from_copilot_sample():
-    import json
-    result = parse_enrichment(json.dumps({"summary":"Stores cache", "purpose":"Set cache entry", "inputs":{"self":"BaseDriver instance", "key":"Cache key", "value":"Value to store"}, "outputs":"No explicit return; None", "side_effects":["Mutates self.CACHE"], "automation_context":"In-memory state", "keywords":["cache"], "caveats":[]}))
-    assert result.inputs == ("self: BaseDriver instance", "key: Cache key", "value: Value to store")
-    assert result.outputs == ("No explicit return; None",)
 
 
 def test_interrupted_close_does_not_delete_or_close_copilot_tab():
@@ -85,20 +67,22 @@ def test_interrupted_close_does_not_delete_or_close_copilot_tab():
 
 
 def test_browser_step_failure_pauses_build_and_reports_stage_without_prompt(monkeypatch):
-    from backends.copilot import CopilotClient, CopilotUnavailable
+    from backends.errors import EnrichmentUnavailable
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     def failing(method):
         client._stage = "pressing Send"
         raise TimeoutError("private prompt content")
     monkeypatch.setattr(client, "_enrich", failing)
-    with pytest.raises(CopilotUnavailable, match="pressing Send") as error:
+    with pytest.raises(EnrichmentUnavailable, match="pressing Send") as error:
         client.enrich(None)
     assert client.interrupted is True
     assert "private prompt content" not in str(error.value)
 
 
 def test_prompt_insertion_preserves_long_multiline_text_and_checks_editor():
-    from backends.copilot import enter_prompt, CopilotUnavailable
+    from backends.errors import EnrichmentUnavailable
+    from backends.copilot import enter_prompt
     from types import SimpleNamespace
     class Editor:
         text = "old draft"
@@ -116,7 +100,7 @@ def test_prompt_insertion_preserves_long_multiline_text_and_checks_editor():
     enter_prompt(page, box, prompt)
     assert box.text == prompt
     page.keyboard.insert_text = lambda text: None
-    with pytest.raises(CopilotUnavailable, match="3 attempts"):
+    with pytest.raises(EnrichmentUnavailable, match="3 attempts"):
         enter_prompt(page, box, prompt)
 
 
@@ -164,7 +148,8 @@ def test_prompt_verification_ignores_observed_trailing_copilot_sentinels():
 
 
 def test_send_refuses_ambiguous_visible_controls():
-    from backends.copilot import send_prompt, CopilotUnavailable
+    from backends.errors import EnrichmentUnavailable
+    from backends.copilot import send_prompt
     from types import SimpleNamespace
     class Controls:
         @property
@@ -175,7 +160,7 @@ def test_send_refuses_ambiguous_visible_controls():
     def locator(selector):
         assert selector == 'button[aria-label="Send"]:visible'
         return Controls()
-    with pytest.raises(CopilotUnavailable, match="Multiple visible"):
+    with pytest.raises(EnrichmentUnavailable, match="Multiple visible"):
         send_prompt(SimpleNamespace(locator=locator))
 
 
@@ -185,50 +170,44 @@ def test_browser_failure_classification_omits_private_error_content():
     assert browser_failure_reason(RuntimeError("Target page, context or browser has been closed")) == "The Copilot tab or browser connection was closed."
 
 
-@pytest.mark.parametrize("fence", ["```json", "```"])
-def test_parse_accepts_single_fenced_json_object(fence):
-    text = '{"summary":"s","purpose":"p","inputs":[],"outputs":[],"side_effects":[],"automation_context":"c","keywords":[],"caveats":[]}'
-    assert parse_enrichment(fence + "\n" + text + "\n```").summary == "s"
 
 
-def test_reply_decoder_does_not_extract_json_from_arbitrary_prose():
-    from backends.copilot import decode_reply
-    import json
-    with pytest.raises(json.JSONDecodeError):
-        decode_reply('Here is some JSON: {"summary":"s"}')
 
 
 def test_invalid_format_gets_only_one_correction_request(monkeypatch):
-    from backends.copilot import CopilotClient, CopilotResponseError
+    from backends.errors import EnrichmentResponseError
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     calls = []
     def invalid(method):
         calls.append(getattr(client, "_format_retry", False))
-        raise CopilotResponseError("Copilot did not return JSON")
+        raise EnrichmentResponseError("Copilot did not return JSON")
     monkeypatch.setattr(client, "_enrich", invalid)
-    with pytest.raises(CopilotResponseError): client.enrich(None)
+    with pytest.raises(EnrichmentResponseError): client.enrich(None)
     assert calls == [False, True]
 
 
 def test_timeout_does_not_trigger_format_retry(monkeypatch):
-    from backends.copilot import CopilotClient, CopilotTimeout
+    from backends.errors import EnrichmentTimeout
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     calls = []
     def timeout(method):
         calls.append(method)
-        raise CopilotTimeout("timed out")
+        raise EnrichmentTimeout("timed out")
     monkeypatch.setattr(client, "_enrich", timeout)
-    with pytest.raises(CopilotTimeout): client.enrich(None)
+    with pytest.raises(EnrichmentTimeout): client.enrich(None)
     assert len(calls) == 1
 
 
 def test_invalid_reply_uses_regeneration_before_sending_correction(monkeypatch):
-    from backends.copilot import CopilotClient, CopilotResponseError
+    from backends.errors import EnrichmentResponseError
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     calls = []
     def invalid(method):
         calls.append(method)
-        raise CopilotResponseError("Copilot did not return JSON")
+        raise EnrichmentResponseError("Copilot did not return JSON")
     monkeypatch.setattr(client, "_enrich", invalid)
     monkeypatch.setattr(client, "_regenerate_reply", lambda: '{"summary":"s","purpose":"p","inputs":[],"outputs":[],"side_effects":[],"automation_context":"c","keywords":[],"caveats":[]}')
     assert client.enrich(None).summary == "s"
@@ -236,16 +215,17 @@ def test_invalid_reply_uses_regeneration_before_sending_correction(monkeypatch):
 
 
 def test_failed_regeneration_is_not_repeated(monkeypatch):
-    from backends.copilot import CopilotClient, CopilotResponseError
+    from backends.errors import EnrichmentResponseError
+    from backends.copilot import CopilotClient
     client = CopilotClient()
     calls = []
-    def invalid(method): raise CopilotResponseError("invalid JSON")
+    def invalid(method): raise EnrichmentResponseError("invalid JSON")
     def regenerate():
         calls.append(1)
         return "still not JSON"
     monkeypatch.setattr(client, "_enrich", invalid)
     monkeypatch.setattr(client, "_regenerate_reply", regenerate)
-    with pytest.raises(CopilotResponseError): client.enrich(None)
+    with pytest.raises(EnrichmentResponseError): client.enrich(None)
     assert len(calls) == 1
 
 
@@ -262,8 +242,8 @@ def test_hidden_stop_controls_do_not_block_completed_reply():
 
 
 def test_cancel_exits_reply_wait_before_reading_or_sleeping():
-    from backends.copilot import CopilotCancelled
-    with pytest.raises(CopilotCancelled):
+    from backends.errors import EnrichmentCancelled
+    with pytest.raises(EnrichmentCancelled):
         wait_for_reply(lambda: pytest.fail("Must stop reading"), 0, 0,
                        should_cancel=lambda: True,
                        sleep=lambda seconds: pytest.fail("Must not wait"))

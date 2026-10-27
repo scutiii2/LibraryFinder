@@ -8,25 +8,16 @@ from threading import Lock
 from pathlib import Path
 from urllib.parse import urlparse
 
+from backends.errors import EnrichmentUnavailable, EnrichmentResponseError, EnrichmentTimeout, EnrichmentCancelled
+from enrichment.parsing import decode_reply, parse_enrichment
 from settings import DATA_DIR
-from core.models import CopilotEnrichment, MethodRecord
+from core.models import Enrichment, MethodRecord
 
 M365_URL = "https://m365.cloud.microsoft/chat"
-REQUIRED = {"summary", "purpose", "inputs", "outputs", "side_effects", "automation_context", "keywords", "caveats"}
 _BROWSER_START_LOCK = Lock()
 
-class CopilotUnavailable(RuntimeError): pass
-class CopilotResponseError(RuntimeError): pass
-class CopilotTimeout(CopilotResponseError): pass
-class CopilotCancelled(CopilotUnavailable): pass
 
 
-def decode_reply(reply):
-    text = reply.strip()
-    lines = text.splitlines()
-    if len(lines) >= 3 and lines[0].strip().lower() in ("```json", "```") and lines[-1].strip() == "```":
-        text = "\n".join(lines[1:-1]).strip()
-    return json.loads(text)
 
 
 def browser_failure_reason(error):
@@ -53,7 +44,7 @@ def send_prompt(page):
     send = page.locator('button[aria-label="Send"]:visible')
     send.first.wait_for(state="visible", timeout=30000)
     if send.count() != 1:
-        raise CopilotUnavailable("Multiple visible Copilot Send buttons found. Build paused before sending.")
+        raise EnrichmentUnavailable("Multiple visible Copilot Send buttons found. Build paused before sending.")
     # Playwright waits for this unique control to be enabled and actionable.
     send.click(timeout=30000)
 
@@ -69,7 +60,7 @@ def wait_for_reply(read, previous_answers, previous_done, *, timeout_s=120,
     busy = False
     saw_new_reply = False
     while now() < deadline:
-        if should_cancel(): raise CopilotCancelled("Catalog build cancelled.")
+        if should_cancel(): raise EnrichmentCancelled("Catalog build cancelled.")
         answers, done, text = read()
         if answers > previous_answers or (text and text != previous_text):
             saw_new_reply = True
@@ -91,35 +82,13 @@ def wait_for_reply(read, previous_answers, previous_done, *, timeout_s=120,
             if last and (marker_complete or complete_json) and now() - changed >= required_quiet and (not busy or stuck_busy):
                 return last
         sleep(0.5)
-    raise CopilotTimeout(f"Copilot timed out waiting for the new reply to finish (new reply detected: {saw_new_reply}; complete JSON: {complete_json}; visible generation active: {busy})")
+    raise EnrichmentTimeout(f"Copilot timed out waiting for the new reply to finish (new reply detected: {saw_new_reply}; complete JSON: {complete_json}; visible generation active: {busy})")
 
 
 def is_generating(page):
     controls = page.locator('button[aria-label="Stop generating"], button[aria-label="Stop generation"], button[aria-label="Stop response"]')
     return any(control.is_visible() for control in controls.all())
 
-def parse_enrichment(reply: str) -> CopilotEnrichment:
-    try: value = decode_reply(reply)
-    except json.JSONDecodeError as exc: raise CopilotResponseError("Copilot did not return JSON") from exc
-    if not isinstance(value, dict):
-        raise CopilotResponseError("Copilot response must be a JSON object")
-    missing = REQUIRED - set(value)
-    if missing:
-        raise CopilotResponseError("Missing fields: " + ", ".join(sorted(missing)))
-    for field in ("inputs", "outputs", "side_effects", "keywords", "caveats"):
-        item = value[field]
-        if item is None:
-            item = []
-        elif isinstance(item, str):
-            item = [item] if item.strip() else []
-        elif isinstance(item, dict) and all(isinstance(text, str) for text in item.values()):
-            item = [f"{name}: {text}" for name, text in item.items()]
-        if not isinstance(item, list) or any(not isinstance(text, str) for text in item):
-            raise CopilotResponseError(f"Invalid field type: {field}; expected text, text list, or description object")
-        value[field] = item
-    if any(not isinstance(value[x], str) for x in ("summary", "purpose", "automation_context")):
-        raise CopilotResponseError("Copilot response has invalid text fields")
-    return CopilotEnrichment(value["summary"], value["purpose"], tuple(value["inputs"]), tuple(value["outputs"]), tuple(value["side_effects"]), value["automation_context"], tuple(value["keywords"]), tuple(value["caveats"]))
 
 def build_prompt(method: MethodRecord, source_limit: int = 12000) -> str:
     if isinstance(method, tuple):
@@ -142,7 +111,7 @@ def build_batch_prompt(methods):
 
 def parse_batch(reply, methods):
     try: value = decode_reply(reply)
-    except ValueError as error: raise CopilotResponseError("Copilot did not return batch JSON") from error
+    except ValueError as error: raise EnrichmentResponseError("Copilot did not return batch JSON") from error
     names = {m.qualified_name for m in methods}
     # Accept explicit wrapper formats while matching only exact supplied identities.
     if isinstance(value, dict) and not names.intersection(value):
@@ -163,13 +132,13 @@ def parse_batch(reply, methods):
         for name in duplicates:
             value[name] = None
     if not isinstance(value, dict) or not names.intersection(value):
-        raise CopilotResponseError("Copilot batch contains no exact requested method identities; expected the fully qualified names as JSON keys")
+        raise EnrichmentResponseError("Copilot batch contains no exact requested method identities; expected the fully qualified names as JSON keys")
     results = {}
     for name in names:
         try:
-            if name not in value: raise CopilotResponseError("Copilot omitted this method from the batch")
+            if name not in value: raise EnrichmentResponseError("Copilot omitted this method from the batch")
             results[name] = parse_enrichment(json.dumps(value[name]))
-        except CopilotResponseError as error:
+        except EnrichmentResponseError as error:
             results[name] = error
     return results
 
@@ -198,7 +167,7 @@ def enter_prompt(page, box, prompt, *, attempts=3):
                 raise
         if attempt < attempts - 1:
             page.wait_for_timeout(1000)
-    raise CopilotUnavailable("Copilot editor changed repeatedly while preparing the prompt. Build paused before sending after 3 attempts.")
+    raise EnrichmentUnavailable("Copilot editor changed repeatedly while preparing the prompt. Build paused before sending after 3 attempts.")
 
 # TODO: fixes from AgentControlCenter (bridge/ask.py, bridge/history.py, bridge/lifecycle.py) that
 # were not ported because this client always starts a fresh chat. Apply them if that ever changes:
@@ -230,21 +199,21 @@ class CopilotClient:
                 subprocess.Popen([str(edge), "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9334", f"--user-data-dir={self.profile.resolve()}", "--no-first-run", M365_URL])
                 deadline = time.monotonic() + 20
                 while not running():
-                    if time.monotonic() >= deadline: raise CopilotUnavailable("Dedicated Edge did not start.")
+                    if time.monotonic() >= deadline: raise EnrichmentUnavailable("Dedicated Edge did not start.")
                     time.sleep(0.5)
             browser = self._pw.chromium.connect_over_cdp(endpoint)
             self.page = browser.contexts[0].new_page()
             self.page.emulate_media(color_scheme="light")
             self.page.goto(M365_URL, wait_until="domcontentloaded")
-        except Exception as exc: raise CopilotUnavailable("Could not open Microsoft 365 Copilot; sign in to the dedicated Edge window and retry.") from exc
+        except Exception as exc: raise EnrichmentUnavailable("Could not open Microsoft 365 Copilot; sign in to the dedicated Edge window and retry.") from exc
     def enrich(self, method):
         self._stage = "opening Copilot"
         self._check_cancel()
         try:
             try:
                 return self._enrich(method)
-            except CopilotResponseError as error:
-                if isinstance(error, CopilotTimeout): raise
+            except EnrichmentResponseError as error:
+                if isinstance(error, EnrichmentTimeout): raise
                 regenerated = self._regenerate_reply()
                 if regenerated is not None:
                     return self._parse_reply(regenerated)
@@ -254,13 +223,13 @@ class CopilotClient:
                     return self._enrich(method)
                 finally:
                     self._format_retry = False
-        except (CopilotResponseError, CopilotUnavailable):
+        except (EnrichmentResponseError, EnrichmentUnavailable):
             raise
         except Exception as error:
             # A partially typed or ambiguously sent prompt must never be followed
             # by another method in the same editor. Retain the tab for inspection.
             self.interrupted = True
-            raise CopilotUnavailable(f"Copilot browser step failed while {self._stage} ({type(error).__name__}). {browser_failure_reason(error)} Build paused; inspect the retained Copilot window and rebuild to retry.") from error
+            raise EnrichmentUnavailable(f"Copilot browser step failed while {self._stage} ({type(error).__name__}). {browser_failure_reason(error)} Build paused; inspect the retained Copilot window and rebuild to retry.") from error
 
     def enrich_batch(self, methods):
         self._batch_methods = tuple(methods)
@@ -306,7 +275,7 @@ class CopilotClient:
         self._check_cancel()
         if not self.page: self.start()
         if getattr(self, "_response_pending", False):
-            raise CopilotUnavailable("Previous Copilot reply did not finish; rebuild to retry.")
+            raise EnrichmentUnavailable("Previous Copilot reply did not finish; rebuild to retry.")
         box = self.page.locator('[role="textbox"][aria-label="Message Copilot"]')
         self._stage = "waiting for the message box"
         box.wait_for(state="visible", timeout=30000)
@@ -365,7 +334,7 @@ class CopilotClient:
     def _check_cancel(self):
         if self._cancelled():
             self.interrupted = True
-            raise CopilotCancelled("Catalog build cancelled.")
+            raise EnrichmentCancelled("Catalog build cancelled.")
 
     def delete_current_conversation(self) -> bool:
         # Deletion selectors are deliberately conservative; ambiguity means retain and report.

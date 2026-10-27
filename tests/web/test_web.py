@@ -100,8 +100,8 @@ def test_catalog_enriches_with_copilot_and_reports_cleanup(tmp_path):
     class Client:
         conversation_url = "https://m365.cloud.microsoft/chat/conversation/current"
         def enrich(self, method):
-            from core.models import CopilotEnrichment
-            return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
+            from core.models import Enrichment
+            return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self):
             return True
 
@@ -160,8 +160,8 @@ def test_stream_catalog_reports_method_cleanup_and_completion(tmp_path, monkeypa
     monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
     class Client:
         def enrich(self, method):
-            from core.models import CopilotEnrichment
-            return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
+            from core.models import Enrichment
+            return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self): return True
     app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=Client)
     response = _endpoint(app, "/api/catalog/stream")()
@@ -275,10 +275,10 @@ def test_source_preview_is_bounded_and_rejects_unknown_or_outside_records(tmp_pa
 @pytest.mark.parametrize("mode, overwrite, queued", [("ai", False, 0), ("ai", True, 1), ("fast", True, 0)])
 def test_overwrite_reanalyzes_methods_that_already_have_explanations(tmp_path, monkeypatch, mode, overwrite, queued):
     from dataclasses import replace
-    from core.models import CopilotEnrichment
+    from core.models import Enrichment
     monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
     method = _method("libs.find")
-    done = replace(method, enrichment=CopilotEnrichment("s", "p", (), (), (), "c", (), ()), enrichment_status="success")
+    done = replace(method, enrichment=Enrichment("s", "p", (), (), (), "c", (), ()), enrichment_status="success")
     seen = []
     app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(method), copilot_factory=lambda: type("C", (), {"enrich": lambda self, m: seen.append(m) or done.enrichment, "close": lambda self: True})())
     app.state.catalog = _catalog(done)

@@ -3,6 +3,30 @@ from core.scanner import scan_library
 from core.catalog import catalog_health
 
 
+def test_existing_enriched_catalog_loads_without_class_metadata(tmp_path):
+    import json
+    from core.models import Enrichment
+    saved = {"version": 1, "source_root": str(tmp_path), "files": [], "errors": [],
+             "created_at": "2026-10-23T00:00:00", "methods": [{
+                 "qualified_name": "libs.find", "module": "libs", "file": "driver.py", "line": 1,
+                 "visibility": "public", "owner_class": None, "base_classes": [],
+                 "parameters": ["self", "value"], "return_annotation": "bool", "decorators": [],
+                 "docstring": None, "imports": [], "keywords": [], "effects": [],
+                 "source": "def find(self, value): return True", "fingerprint": "existing-fingerprint",
+                 "enrichment_status": "success", "enrichment": {
+                     "summary": "Find a value", "purpose": "Lookup", "inputs": ["value"],
+                     "outputs": ["bool"], "side_effects": [], "automation_context": "Lookup",
+                     "keywords": ["find"], "caveats": []}}]}
+    target = tmp_path / "catalog.json"
+    target.write_text(json.dumps(saved), encoding="utf-8")
+    catalog = load_catalog(target)
+    method = catalog.methods[0]
+    assert isinstance(method.enrichment, Enrichment)
+    assert method.enrichment.inputs == ("value",)
+    assert method.enrichment_status == "success"
+    assert json.loads(json.dumps(catalog.to_dict()))["methods"] == saved["methods"]
+
+
 def test_health_detects_new_changed_and_incomplete_methods(library_root):
     catalog = scan_library(library_root)
     (library_root / "utils" / "settings.py").write_text("def updated(): pass\n")

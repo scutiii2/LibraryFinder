@@ -2,11 +2,11 @@
 from dataclasses import dataclass, replace
 from typing import Protocol
 
-from core.models import Catalog, CopilotEnrichment, MethodRecord
+from core.models import Catalog, Enrichment, MethodRecord
 
 
-class CopilotClient(Protocol):
-    def enrich(self, method: MethodRecord) -> CopilotEnrichment: ...
+class EnrichmentClient(Protocol):
+    def enrich(self, method: MethodRecord) -> Enrichment: ...
 
 
 @dataclass(frozen=True)
@@ -18,7 +18,7 @@ class EnrichmentSummary:
     pending: int = 0
 
 
-def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: CopilotClient, on_progress=None, on_error=None, on_checkpoint=None, on_started=None, cancel_event=None) -> tuple[Catalog, EnrichmentSummary]:
+def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: EnrichmentClient, on_progress=None, on_error=None, on_checkpoint=None, on_started=None, cancel_event=None) -> tuple[Catalog, EnrichmentSummary]:
     if client is not None and cancel_event is not None: client.cancel_event = cancel_event
     old = {(item.file, item.qualified_name): item for item in previous.methods} if previous else {}
     methods = []; reused = enriched = failed = pending = 0
@@ -60,9 +60,9 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: CopilotCl
                         if batch and (len(batch) == 5 or chars + size > 24000): break
                         batch.append(candidate); chars += size
                     batch_results.update(client.enrich_batch(tuple(batch)))
-                from backends.copilot import CopilotResponseError
-                value = batch_results.pop(method.qualified_name, CopilotResponseError("Copilot omitted this method from the batch"))
-                if isinstance(value, CopilotResponseError) and "omitted" in str(value):
+                from backends.errors import EnrichmentResponseError
+                value = batch_results.pop(method.qualified_name, EnrichmentResponseError("Copilot omitted this method from the batch"))
+                if isinstance(value, EnrichmentResponseError) and "omitted" in str(value):
                     # One single-method retry for a method Copilot left out of the batch.
                     value = client.enrich(method)
                 if isinstance(value, Exception): raise value
@@ -70,20 +70,20 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: CopilotCl
                 value = client.enrich(method)
             methods.append(replace(method, enrichment=value, enrichment_status="success")); enriched += 1
         except Exception as error:
-            from backends.copilot import CopilotCancelled
-            if isinstance(error, CopilotCancelled):
+            from backends.errors import EnrichmentCancelled
+            if isinstance(error, EnrichmentCancelled):
                 interrupted = True
                 methods.append(replace(method, enrichment=None, enrichment_status="pending")); pending += 1
                 checkpoint()
                 continue
-            from backends.copilot import CopilotTimeout
-            if isinstance(error, CopilotTimeout) or getattr(client, "interrupted", False):
+            from backends.errors import EnrichmentTimeout
+            if isinstance(error, EnrichmentTimeout) or getattr(client, "interrupted", False):
                 interrupted = True
             methods.append(replace(method, enrichment=None, enrichment_status="error")); failed += 1
             if on_error:
-                from backends.copilot import CopilotUnavailable, CopilotResponseError
+                from backends.errors import EnrichmentUnavailable, EnrichmentResponseError
                 # Browser exceptions can contain prompt text. Expose only controlled messages.
-                reason = str(error) if isinstance(error, (CopilotUnavailable, CopilotResponseError)) else f"Browser/client failure ({type(error).__name__})."
+                reason = str(error) if isinstance(error, (EnrichmentUnavailable, EnrichmentResponseError)) else f"Browser/client failure ({type(error).__name__})."
                 on_error(method, reason)
         checkpoint()
         if on_progress: on_progress(len(methods), len(scanned.methods), method, methods[-1].enrichment_status)

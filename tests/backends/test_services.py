@@ -6,7 +6,8 @@ import pytest
 
 from backends.factory import enrichment_factory, ranker_factory
 from settings import configured_backends
-from backends.copilot import CopilotClient, CopilotResponseError, CopilotUnavailable
+from backends.errors import EnrichmentResponseError, EnrichmentUnavailable
+from backends.copilot import CopilotClient
 from backends.laya import LayaRanker, LayaServiceRanker
 from backends.minicpm import MiniCPMClient
 from core.models import MethodRecord
@@ -59,13 +60,13 @@ def test_minicpm_retries_once_on_unparseable_reply(service):
 
 def test_minicpm_reports_token_budget_exhaustion(service):
     service.replies = [(200, {"content": "", "finish_reason": "length"})] * 2
-    with pytest.raises(CopilotResponseError, match="tokens"):
+    with pytest.raises(EnrichmentResponseError, match="tokens"):
         MiniCPMClient(service.url).enrich(_method())
 
 
 def test_minicpm_service_down_pauses_the_build():
     client = MiniCPMClient("http://127.0.0.1:1", timeout=2)
-    with pytest.raises(CopilotUnavailable, match="not reachable"):
+    with pytest.raises(EnrichmentUnavailable, match="not reachable"):
         client.enrich(_method())
     assert client.interrupted is True
     assert client.close() is True
@@ -74,7 +75,7 @@ def test_minicpm_service_down_pauses_the_build():
 def test_minicpm_bad_request_fails_only_that_method(service):
     service.replies = [(422, {"detail": "bad"})]
     client = MiniCPMClient(service.url)
-    with pytest.raises(CopilotResponseError, match="422"):
+    with pytest.raises(EnrichmentResponseError, match="422"):
         client.enrich(_method())
     assert client.interrupted is False
 
@@ -204,6 +205,6 @@ def test_minicpm_sends_a_worked_example_before_the_method(service):
 def test_model_json_failure_502_fails_only_that_method_without_retry(service):
     service.replies = [(502, {"detail": {"message": "The model did not return valid JSON"}})]
     client = MiniCPMClient(service.url)
-    with pytest.raises(CopilotResponseError, match="valid JSON"):
+    with pytest.raises(EnrichmentResponseError, match="valid JSON"):
         client.enrich(_method())
     assert client.interrupted is False and len(service.seen) == 1

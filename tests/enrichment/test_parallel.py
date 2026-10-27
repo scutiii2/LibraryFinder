@@ -5,7 +5,7 @@ import pytest
 from enrichment.parallel import enrich_parallel
 from settings import configured_workers
 from core.scanner import scan_library
-from core.models import CopilotEnrichment
+from core.models import Enrichment
 
 
 def test_two_workers_process_once_and_preserve_all_checkpoints(library_root):
@@ -19,7 +19,7 @@ def test_two_workers_process_once_and_preserve_all_checkpoints(library_root):
             assert get_ident() == self.thread
             calls.append(method.qualified_name)
             barrier.wait(timeout=3)
-            return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
+            return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self):
             assert get_ident() == self.thread
             return True
@@ -76,7 +76,7 @@ def test_method_is_durable_before_next_request_while_other_worker_is_busy(librar
             elif method.qualified_name == third_name:
                 # Same worker's next request observes its preceding disk commit.
                 assert load_catalog(target).method(first_name).enrichment_status == "success"
-            return CopilotEnrichment("summary", "purpose", (), (), (), "context", (), ())
+            return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self): return True
     _, summary, _ = enrich_parallel(scanned, None, Client, 2, on_checkpoint=checkpoint)
     assert summary.enriched == len(scanned.methods)

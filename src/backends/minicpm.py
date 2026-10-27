@@ -7,7 +7,8 @@ import json
 import os
 import textwrap
 
-from backends.copilot import CopilotResponseError, CopilotUnavailable, parse_enrichment
+from backends.errors import EnrichmentResponseError, EnrichmentUnavailable
+from enrichment.parsing import parse_enrichment
 from backends.http_json import ServiceError, ServiceUnreachable, request_json
 
 DEFAULT_URL = "http://127.0.0.1:9130"
@@ -101,11 +102,11 @@ def _is_echo(item):
 def build_enrichment(value, method):
     """Combine the model's four fields with the scanner fields into a full enrichment."""
     if not isinstance(value, dict):
-        raise CopilotResponseError("Copilot response must be a JSON object")
+        raise EnrichmentResponseError("Copilot response must be a JSON object")
     for field in ("summary", "purpose", "automation_context"):
         text = value.get(field)
         if not isinstance(text, str) or _is_echo(text):
-            raise CopilotResponseError("MiniCPM did not describe the method")
+            raise EnrichmentResponseError("MiniCPM did not describe the method")
     keywords = value.get("keywords") if isinstance(value.get("keywords"), list) else []
     keywords = list(dict.fromkeys(k.strip() for k in keywords if isinstance(k, str) and k.strip().lower() not in _NUMBER_WORDS
                                   and not _is_echo(k) and len(k.split()) <= 3))
@@ -119,7 +120,7 @@ def parse_reply(reply, method):
     try:
         value = json.loads(reply)
     except (TypeError, ValueError) as error:
-        raise CopilotResponseError("Copilot did not return JSON") from error
+        raise EnrichmentResponseError("Copilot did not return JSON") from error
     return build_enrichment(value, method)
 
 
@@ -140,7 +141,7 @@ class MiniCPMClient:
             reply = self._chat(messages)
             try:
                 return parse_reply(reply, method)
-            except CopilotResponseError as error:
+            except EnrichmentResponseError as error:
                 last = error
         raise last
 
@@ -151,14 +152,14 @@ class MiniCPMClient:
             body = request_json("POST", self.url + "/v1/chat", payload, token=self.token, timeout=self.timeout)
         except ServiceUnreachable as error:
             self.interrupted = True
-            raise CopilotUnavailable(f"MiniCPM service is not reachable at {self.url}. Start it and rebuild.") from error
+            raise EnrichmentUnavailable(f"MiniCPM service is not reachable at {self.url}. Start it and rebuild.") from error
         except ServiceError as error:
             if error.status == 401 or (error.status == 502 and not error.detail):
                 self.interrupted = True
-                raise CopilotUnavailable(f"MiniCPM service refused the request ({error}). Build paused.") from error
-            raise CopilotResponseError(f"MiniCPM request failed ({error})") from error
+                raise EnrichmentUnavailable(f"MiniCPM service refused the request ({error}). Build paused.") from error
+            raise EnrichmentResponseError(f"MiniCPM request failed ({error})") from error
         if body.get("finish_reason") == "length":
-            raise CopilotResponseError("MiniCPM ran out of tokens before finishing the reply")
+            raise EnrichmentResponseError("MiniCPM ran out of tokens before finishing the reply")
         return body.get("content") or ""
 
     def close(self):

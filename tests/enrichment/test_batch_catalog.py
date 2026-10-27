@@ -2,8 +2,9 @@ import json
 from dataclasses import replace
 from core.scanner import scan_library
 from enrichment.pipeline import enrich_catalog
-from backends.copilot import parse_batch, CopilotResponseError, build_batch_prompt
-from core.models import CopilotEnrichment
+from backends.errors import EnrichmentResponseError
+from backends.copilot import parse_batch, build_batch_prompt
+from core.models import Enrichment
 
 
 def test_batches_five_methods_and_checkpoints_each_result(library_root):
@@ -16,7 +17,7 @@ def test_batches_five_methods_and_checkpoints_each_result(library_root):
             if batches:
                 assert sum(m.enrichment_status == "success" for m in saved[-1].methods) == sum(len(batch) for batch in batches)
             batches.append(methods)
-            return {m.qualified_name: CopilotEnrichment("s", "p", (), (), (), "c", (), ()) for m in methods}
+            return {m.qualified_name: Enrichment("s", "p", (), (), (), "c", (), ()) for m in methods}
     result, summary = enrich_catalog(scanned, None, Client(), on_checkpoint=saved.append)
     assert list(map(len, batches)) == [5, 5, 2]
     assert summary.enriched == 12
@@ -28,7 +29,7 @@ def test_batch_parser_maps_by_identity_and_preserves_partial_results(library_roo
     methods = scan_library(library_root).methods[:2]
     payload = {methods[1].qualified_name: {"summary":"s", "purpose":"p", "inputs":[], "outputs":[], "side_effects":[], "automation_context":"c", "keywords":[], "caveats":[]}}
     result = parse_batch(json.dumps(payload), methods)
-    assert isinstance(result[methods[0].qualified_name], CopilotResponseError)
+    assert isinstance(result[methods[0].qualified_name], EnrichmentResponseError)
     assert result[methods[1].qualified_name].summary == "s"
     assert all(m.qualified_name in build_batch_prompt(methods) for m in methods)
 
@@ -47,4 +48,4 @@ def test_wrapped_result_list_uses_exact_qualified_names(library_root):
     payload = {"results":[{"qualified_name":methods[1].qualified_name, "enrichment":value}, {"qualified_name":"invented", "enrichment":value}]}
     result = parse_batch(json.dumps(payload), methods)
     assert result[methods[1].qualified_name].summary == "s"
-    assert isinstance(result[methods[0].qualified_name], CopilotResponseError)
+    assert isinstance(result[methods[0].qualified_name], EnrichmentResponseError)

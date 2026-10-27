@@ -19,7 +19,7 @@ class ScanError:
 
 
 @dataclass(frozen=True)
-class CopilotEnrichment:
+class Enrichment:
     summary: str
     purpose: str
     inputs: tuple[str, ...]
@@ -48,7 +48,7 @@ class MethodRecord:
     effects: tuple[str, ...]
     source: str = ""
     fingerprint: str = ""
-    enrichment: CopilotEnrichment | None = None
+    enrichment: Enrichment | None = None
     enrichment_status: str = "pending"
 
 
@@ -102,7 +102,7 @@ class Catalog:
                         "imports": tuple(item["imports"]),
                         "keywords": tuple(item["keywords"]),
                         "effects": tuple(item["effects"]),
-                        "enrichment": (CopilotEnrichment(**{**item["enrichment"], **{key: tuple(item["enrichment"][key]) for key in ("inputs", "outputs", "side_effects", "keywords", "caveats")}}) if item.get("enrichment") else None),
+                        "enrichment": (Enrichment(**{**item["enrichment"], **{key: tuple(item["enrichment"][key]) for key in ("inputs", "outputs", "side_effects", "keywords", "caveats")}}) if item.get("enrichment") else None),
                         "enrichment_status": item.get("enrichment_status", "pending"),
                     })
                 for item in value["methods"]

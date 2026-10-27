@@ -7,7 +7,6 @@ import pytest
 from backends.factory import enrichment_factory, ranker_factory
 from settings import configured_backends
 from backends.errors import EnrichmentResponseError, EnrichmentUnavailable
-from backends.copilot import CopilotClient
 from backends.laya import LayaRanker, LayaServiceRanker
 from backends.minicpm import MiniCPMClient
 from core.models import MethodRecord
@@ -94,9 +93,9 @@ def test_laya_service_ranker_raises_when_service_is_down():
         LayaServiceRanker("http://127.0.0.1:1").prepare()
 
 
-def test_backends_default_to_local_copilot_and_laya(tmp_path):
-    assert configured_backends(tmp_path)["enrichment_backend"] == "copilot"
-    assert enrichment_factory(tmp_path) is CopilotClient
+def test_backends_default_to_minicpm_and_local_laya(tmp_path):
+    assert "enrichment_backend" not in configured_backends(tmp_path)
+    assert isinstance(enrichment_factory(tmp_path)(), MiniCPMClient)
     assert ranker_factory(tmp_path) is LayaRanker
 
 
@@ -208,3 +207,16 @@ def test_model_json_failure_502_fails_only_that_method_without_retry(service):
     with pytest.raises(EnrichmentResponseError, match="valid JSON"):
         client.enrich(_method())
     assert client.interrupted is False and len(service.seen) == 1
+
+
+@pytest.mark.parametrize("retired", ["co" + "pilot", "auto"])
+def test_removed_backend_configuration_requests_key_removal(tmp_path, retired):
+    (tmp_path / "configs.json").write_text(json.dumps({"enrichment_backend": retired}))
+    with pytest.raises(ValueError, match="Remove.*enrichment_backend"):
+        configured_backends(tmp_path)
+
+
+def test_explicit_minicpm_setting_is_accepted_and_ignored(tmp_path):
+    (tmp_path / "configs.json").write_text('{"enrichment_backend":"minicpm"}')
+    assert "enrichment_backend" not in configured_backends(tmp_path)
+    assert isinstance(enrichment_factory(tmp_path)(), MiniCPMClient)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 # <repo>/src/settings.py -> <repo>
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-# Local state (catalog, saved library paths, Copilot browser profile); gitignored.
+# Local state (catalog and saved library paths); gitignored.
 DATA_DIR = PROJECT_ROOT / "data"
 
 
@@ -54,8 +54,7 @@ def configured_threshold(project_root: Path) -> float:
 
 def configured_workers(project_root: Path) -> int:
     config = read_config(project_root)
-    # `copilot_workers` is the old name of this setting.
-    workers = config.get("catalog_workers", config.get("copilot_workers", 1))
+    workers = config.get("catalog_workers", 1)
     if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 5:
         raise ValueError("catalog_workers must be an integer from 1 through 5")
     return workers
@@ -78,18 +77,17 @@ def load_env(project_root: Path) -> None:
 
 
 def configured_backends(project_root: Path) -> dict:
-    """Backend choices: environment (.env) over configs.json over local defaults (Copilot browser, in-process Laya)."""
+    """Service URLs: environment (.env) over configs.json over local defaults (MiniCPM, in-process Laya)."""
     load_env(project_root)
     try:
         config = read_config(project_root)
     except (FileNotFoundError, json.JSONDecodeError):
         config = {}
-    settings = {"enrichment_backend": config.get("enrichment_backend", "copilot"),
-                "minicpm_url": os.environ.get("MINICPM_URL") or config.get("minicpm_url", "http://127.0.0.1:9130"),
+    if "enrichment_backend" in config and config["enrichment_backend"] != "minicpm":
+        raise ValueError("Remove the enrichment_backend setting from configs.json; AI-assisted enrichment now uses MiniCPM only.")
+    settings = {"minicpm_url": os.environ.get("MINICPM_URL") or config.get("minicpm_url", "http://127.0.0.1:9130"),
                 "laya_backend": config.get("laya_backend", "local"),
                 "laya_url": os.environ.get("LAYA_URL") or config.get("laya_url", "http://127.0.0.1:9120")}
-    if settings["enrichment_backend"] not in ("auto", "copilot", "minicpm"):
-        raise ValueError("enrichment_backend must be auto, copilot or minicpm")
     if settings["laya_backend"] not in ("local", "service"):
         raise ValueError("laya_backend must be local or service")
     return settings

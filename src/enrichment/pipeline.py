@@ -23,10 +23,6 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: Enrichmen
     old = {(item.file, item.qualified_name): item for item in previous.methods} if previous else {}
     methods = []; reused = enriched = failed = pending = 0
     interrupted = False
-    batch_results = {}
-    def reusable(method):
-        prior = old.get((method.file, method.qualified_name))
-        return prior and prior.fingerprint == method.fingerprint and prior.enrichment_status == "success" and prior.enrichment
     def checkpoint():
         if on_checkpoint:
             # Preserve unchanged successful records even before reaching them.
@@ -44,30 +40,13 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: Enrichmen
             checkpoint()
             if on_progress: on_progress(len(methods), len(scanned.methods), method, "reused")
             continue
-        if interrupted or client is None or (cancel_event is not None and cancel_event.is_set() and method.qualified_name not in batch_results):
+        if interrupted or client is None or (cancel_event is not None and cancel_event.is_set()):
             methods.append(replace(method, enrichment=None, enrichment_status="pending")); pending += 1
             checkpoint()
             continue
         try:
             if on_started: on_started(method)
-            if hasattr(client, "enrich_batch"):
-                if method.qualified_name not in batch_results:
-                    batch = []
-                    chars = 0
-                    for candidate in scanned.methods[len(methods):]:
-                        if reusable(candidate): continue
-                        size = len(candidate.source[:12000])
-                        if batch and (len(batch) == 5 or chars + size > 24000): break
-                        batch.append(candidate); chars += size
-                    batch_results.update(client.enrich_batch(tuple(batch)))
-                from backends.errors import EnrichmentResponseError
-                value = batch_results.pop(method.qualified_name, EnrichmentResponseError("Copilot omitted this method from the batch"))
-                if isinstance(value, EnrichmentResponseError) and "omitted" in str(value):
-                    # One single-method retry for a method Copilot left out of the batch.
-                    value = client.enrich(method)
-                if isinstance(value, Exception): raise value
-            else:
-                value = client.enrich(method)
+            value = client.enrich(method)
             methods.append(replace(method, enrichment=value, enrichment_status="success")); enriched += 1
         except Exception as error:
             from backends.errors import EnrichmentCancelled
@@ -82,7 +61,7 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: Enrichmen
             methods.append(replace(method, enrichment=None, enrichment_status="error")); failed += 1
             if on_error:
                 from backends.errors import EnrichmentUnavailable, EnrichmentResponseError
-                # Browser exceptions can contain prompt text. Expose only controlled messages.
+                # Client exceptions can contain prompt text. Expose only controlled messages.
                 reason = str(error) if isinstance(error, (EnrichmentUnavailable, EnrichmentResponseError)) else f"Browser/client failure ({type(error).__name__})."
                 on_error(method, reason)
         checkpoint()

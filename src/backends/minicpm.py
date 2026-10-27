@@ -1,4 +1,4 @@
-"""Local MiniCPM service transport for catalog enrichment (replaces the Copilot browser).
+"""Local MiniCPM service transport for catalog enrichment.
 
 A 1B model writes plausible summaries and keywords but invents inputs, outputs, side effects and
 caveats. It is therefore asked for four fields only; the rest come from the scanner's facts."""
@@ -12,7 +12,7 @@ from enrichment.parsing import parse_enrichment
 from backends.http_json import ServiceError, ServiceUnreachable, request_json
 
 DEFAULT_URL = "http://127.0.0.1:9130"
-# A 1B model gets a shorter source snippet than Copilot's 12,000 characters.
+# Bound the source snippet for the 1B model.
 SOURCE_LIMIT = 6000
 _TEXT = {"type": "string"}
 SCHEMA = {"type": "object",
@@ -102,7 +102,7 @@ def _is_echo(item):
 def build_enrichment(value, method):
     """Combine the model's four fields with the scanner fields into a full enrichment."""
     if not isinstance(value, dict):
-        raise EnrichmentResponseError("Copilot response must be a JSON object")
+        raise EnrichmentResponseError("MiniCPM response must be a JSON object")
     for field in ("summary", "purpose", "automation_context"):
         text = value.get(field)
         if not isinstance(text, str) or _is_echo(text):
@@ -120,13 +120,12 @@ def parse_reply(reply, method):
     try:
         value = json.loads(reply)
     except (TypeError, ValueError) as error:
-        raise EnrichmentResponseError("Copilot did not return JSON") from error
+        raise EnrichmentResponseError("MiniCPM did not return JSON") from error
     return build_enrichment(value, method)
 
 
 class MiniCPMClient:
-    """Same interface as CopilotClient; one method per request, no browser, nothing to clean up."""
-    conversation_url = None
+    """One method per service request."""
 
     def __init__(self, url=None, token=None, timeout=180, max_tokens=1024):
         self.url = (url or DEFAULT_URL).rstrip("/")

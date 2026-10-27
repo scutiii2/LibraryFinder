@@ -1,3 +1,5 @@
+> superseded: Copilot backend removed
+
 # Copilot catalog enrichment design
 
 ## Purpose

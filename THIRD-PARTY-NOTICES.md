@@ -4,7 +4,6 @@ The application's MIT licence does not replace these components' licences. Nothi
 
 | Component | Extra | Licence |
 | --- | --- | --- |
-| Playwright for Python | `copilot` | Apache-2.0 |
 | FastAPI | `web` | MIT |
 | Uvicorn | `web` | BSD-3-Clause |
 | laya | `laya` | (?) not verified |

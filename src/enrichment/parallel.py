@@ -1,4 +1,4 @@
-"""Separate thread-owned Copilot clients with serialized catalog checkpoints."""
+"""Separate thread-owned enrichment clients with serialized catalog checkpoints."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
@@ -35,7 +35,7 @@ def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint
             if on_error: on_error(method, reason)
     partitions = [scanned.methods[index::workers] for index in range(workers)]
     def work(worker_id, methods):
-        # Construct, operate, and dispose Playwright objects on this same thread.
+        # Construct, operate, and close each client on the same worker thread.
         client = client_factory()
         count = 0
         result = None
@@ -60,16 +60,13 @@ def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint
             return result
         finally:
             emit("cleanup")
-            deleted = client.close()
+            client.close()
             status = "cancelled" if cancel_event is not None and cancel_event.is_set() else "interrupted" if result is None or result[1].pending or getattr(client, "interrupted", False) else "finished_with_errors" if result[1].failed else "finished"
             emit(status)
-            with lock:
-                cleanup.append(deleted)
-    cleanup = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(work, index + 1, methods) for index, methods in enumerate(partitions) if methods]
         results = [future.result() for future in futures]
     summary = EnrichmentSummary(len(scanned.methods),
         **{field: sum(getattr(result[1], field) for result in results)
            for field in ("reused", "enriched", "failed", "pending")})
-    return snapshot(), summary, all(cleanup) if cleanup else None
+    return snapshot(), summary

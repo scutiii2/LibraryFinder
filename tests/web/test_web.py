@@ -94,44 +94,25 @@ def test_create_app_serves_configured_dashboard_shell(tmp_path):
     assert 'id="code"' in response
 
 
-def test_catalog_enriches_with_copilot_and_reports_cleanup(tmp_path):
+def test_catalog_enriches_with_minicpm(tmp_path):
     catalog = _catalog(_method("libs.Driver.find"))
 
     class Client:
-        conversation_url = "https://m365.cloud.microsoft/chat/conversation/current"
         def enrich(self, method):
             from core.models import Enrichment
             return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self):
             return True
 
-    app = create_app(source_root=tmp_path, scanner=lambda _: catalog, copilot_factory=Client)
+    app = create_app(source_root=tmp_path, scanner=lambda _: catalog, client_factory=Client)
     result = _endpoint(app, "/api/catalog")()
 
     assert result == {"methods": 1, "files": 0, "errors": 0, "reused": 0,
-                      "enriched": 1, "failed": 0, "conversation_deleted": True, "pending": 0, "interrupted": False, "mode": "ai", "strategy": None, "cancelled": False}
+                      "enriched": 1, "failed": 0, "pending": 0, "interrupted": False, "mode": "ai", "cancelled": False}
 
 
-@pytest.mark.parametrize("strategy, reachable, expected", [
-    ("minicpm", False, "minicpm"), ("copilot", True, "copilot"), ("auto", True, "minicpm"), ("auto", False, "copilot"),
-    (None, False, "copilot")])
-def test_catalog_strategy_picks_the_service(tmp_path, monkeypatch, strategy, reachable, expected):
-    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
-    monkeypatch.setattr("backends.factory.minicpm_reachable", lambda url: reachable)
-    chosen = []
-    def factory(root, used):
-        chosen.append(used)
-        return lambda: type("C", (), {"enrich": lambda self, m: (_ for _ in ()).throw(RuntimeError("stop")), "close": lambda self: True})()
-    monkeypatch.setattr("web.app.enrichment_factory", factory)
-    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")))
-    result = _endpoint(app, "/api/catalog")("ai", strategy)
-    assert chosen == [expected] and result["strategy"] == expected
 
 
-def test_catalog_rejects_unknown_strategy(tmp_path):
-    app = create_app(source_root=tmp_path)
-    with pytest.raises(HTTPException) as error: _endpoint(app, "/api/catalog")("ai", "gpt")
-    assert error.value.status_code == 422
 
 
 def test_cancel_catalog_sets_shared_event_only_during_active_build(tmp_path):
@@ -143,15 +124,14 @@ def test_cancel_catalog_sets_shared_event_only_during_active_build(tmp_path):
     assert app.state.catalog_cancel.is_set()
 
 
-def test_fast_catalog_does_not_open_copilot(tmp_path, monkeypatch):
+def test_fast_catalog_does_not_call_enrichment(tmp_path, monkeypatch):
     monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
-    def forbidden(): raise AssertionError("Fast mode must not open Copilot")
-    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=forbidden)
+    def forbidden(): raise AssertionError("Fast mode must not call enrichment")
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), client_factory=forbidden)
     result = _endpoint(app, "/api/catalog")("fast")
     assert result["pending"] == 1
     assert result["enriched"] == 0
     assert result["interrupted"] is False
-    assert result["conversation_deleted"] is None
     assert app.state.catalog.methods[0].enrichment_status == "pending"
 
 
@@ -163,7 +143,7 @@ def test_stream_catalog_reports_method_cleanup_and_completion(tmp_path, monkeypa
             from core.models import Enrichment
             return Enrichment("summary", "purpose", (), (), (), "context", (), ())
         def close(self): return True
-    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=Client)
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), client_factory=Client)
     response = _endpoint(app, "/api/catalog/stream")()
     async def collect():
         return [json.loads(chunk) async for chunk in response.body_iterator]
@@ -280,16 +260,16 @@ def test_overwrite_reanalyzes_methods_that_already_have_explanations(tmp_path, m
     method = _method("libs.find")
     done = replace(method, enrichment=Enrichment("s", "p", (), (), (), "c", (), ()), enrichment_status="success")
     seen = []
-    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(method), copilot_factory=lambda: type("C", (), {"enrich": lambda self, m: seen.append(m) or done.enrichment, "close": lambda self: True})())
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(method), client_factory=lambda: type("C", (), {"enrich": lambda self, m: seen.append(m) or done.enrichment, "close": lambda self: True})())
     app.state.catalog = _catalog(done)
-    result = _endpoint(app, "/api/catalog")(mode, None, overwrite)
+    result = _endpoint(app, "/api/catalog")(mode, overwrite)
     assert len(seen) == queued
 
 
 @pytest.mark.parametrize("workers", [0, 6])
 def test_catalog_rejects_worker_counts_outside_one_to_five(tmp_path, workers):
     app = create_app(source_root=tmp_path)
-    with pytest.raises(HTTPException) as error: _endpoint(app, "/api/catalog")("ai", None, False, workers)
+    with pytest.raises(HTTPException) as error: _endpoint(app, "/api/catalog")("ai", False, workers)
     assert error.value.status_code == 422
 
 
@@ -299,8 +279,38 @@ def test_catalog_workers_parameter_overrides_the_configured_count(tmp_path, monk
     def parallel(scanned, previous, factory, workers, **kwargs):
         from enrichment.pipeline import EnrichmentSummary
         seen.append(workers)
-        return scanned, EnrichmentSummary(0, 0, 0, 0), None
+        return scanned, EnrichmentSummary(0, 0, 0, 0)
     monkeypatch.setattr("web.app.enrich_parallel", parallel)
-    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=lambda: None)
-    _endpoint(app, "/api/catalog")("ai", None, False, 3)
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), client_factory=lambda: None)
+    _endpoint(app, "/api/catalog")("ai", False, 3)
     assert seen == [3]
+
+
+def test_settings_and_catalog_endpoints_have_no_strategy_selection(tmp_path):
+    import inspect
+    app = create_app(source_root=tmp_path)
+    assert "enrichment_backend" not in _endpoint(app, "/api/settings")()
+    for path in ("/api/catalog", "/api/catalog/stream"):
+        assert set(inspect.signature(_endpoint(app, path)).parameters) == {"mode", "overwrite", "workers"}
+    page = _endpoint(app, "/")()
+    assert 'id="ai-strategy"' not in page
+    assert 'value="fast"' in page and 'value="ai"' in page
+    assert 'id="overwrite-catalog"' in page and 'id="catalog-worker-count"' in page
+    assert "Source index & MiniCPM explanations" in page
+
+
+def test_catalog_uses_configured_minicpm_factory(tmp_path, monkeypatch):
+    from core.models import Enrichment
+    chosen = []
+    class Client:
+        def enrich(self, method): return Enrichment("s", "p", (), (), (), "c", (), ())
+        def close(self): pass
+    def factory(root):
+        chosen.append(root)
+        return Client
+    monkeypatch.setattr("web.app.enrichment_factory", factory)
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")))
+    result = _endpoint(app, "/api/catalog")()
+    assert len(chosen) == 1
+    assert result["enriched"] == 1
+    assert "strategy" not in result

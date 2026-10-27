@@ -94,15 +94,9 @@ document.querySelectorAll('.chip').forEach(button => button.addEventListener('cl
   if (goal.disabled || button.disabled) return;
   goal.value = button.textContent; goal.focus();
 }));
-let aiService = 'Copilot';
-const strategyInputs = () => document.querySelectorAll('input[name="ai-strategy"]');
-const chosenStrategy = () => (document.querySelector('input[name="ai-strategy"]:checked') || {value: 'copilot'}).value;
-const serviceFor = strategy => ({minicpm: 'MiniCPM', copilot: 'Copilot'})[strategy] || 'AI';
 async function loadSettings(keepStatus = false) {
   const response = await fetch('/api/settings'); const data = await response.json();
-  const saved = ['auto', 'minicpm', 'copilot'].includes(data.enrichment_backend) ? data.enrichment_backend : 'copilot';
   const count = document.querySelector('#catalog-worker-count'); if (!count.dataset.touched) count.value = data.catalog_workers || 1;
-  if (!document.querySelector('input[name="ai-strategy"]:checked')) document.querySelector(`input[name="ai-strategy"][value="${saved}"]`).checked = true;
   updateAiText();
   document.querySelector('#source-root').value = (data.source_roots || [data.source_root]).join('\n');
   document.querySelector('#default-threshold').value = data.threshold;
@@ -121,10 +115,9 @@ document.querySelector('#settings-form').addEventListener('submit', async event 
 document.querySelector('#build-catalog').addEventListener('click', async () => {
   const mode = document.querySelector('input[name="catalog-mode"]:checked').value;
   document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = true);
-  const strategy = chosenStrategy(); strategyInputs().forEach(input => input.disabled = true);
   const workerBox = document.querySelector('#catalog-worker-count'); const workerCount = Math.min(5, Math.max(1, Math.round(Number(workerBox.value)) || 1)); workerBox.value = workerCount; workerBox.disabled = true;
   const overwrite = document.querySelector('#overwrite-catalog'); const overwriting = mode === 'ai' && overwrite.checked; overwrite.disabled = true;
-  setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with ' + ({minicpm: 'the MiniCPM service…', copilot: 'your signed-in Microsoft 365 Copilot account…'}[strategy] || 'MiniCPM if its service is reachable, otherwise your Copilot account…');
+  setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with the MiniCPM service…';
   const bar = document.querySelector('#catalog-progress');
   const label = document.querySelector('#catalog-progress-label');
   const errors = document.querySelector('#catalog-errors'); errors.replaceChildren();
@@ -146,7 +139,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   };
   bar.removeAttribute('value'); label.textContent = 'Scanning Python files…';
   try {
-    const response = await fetch(`/api/catalog/stream?mode=${mode}&strategy=${strategy}&overwrite=${overwriting}&workers=${workerCount}`, {method:'POST'});
+    const response = await fetch(`/api/catalog/stream?mode=${mode}&overwrite=${overwriting}&workers=${workerCount}`, {method:'POST'});
     if (!response.ok) throw new Error((await response.json()).detail);
     const cancelButton = document.querySelector('#cancel-catalog'); cancelButton.hidden = false; cancelButton.disabled = false; cancelButton.textContent = 'Cancel build';
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '', completed = false;
@@ -169,7 +162,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
             row = {element, title, bar:workerBar, detail}; workerRows.set(data.worker_id, row);
             [...workerRows.entries()].sort((a,b) => a[0]-b[0]).forEach(([,item]) => workersPanel.append(item.element));
           }
-          const names = {starting:'Starting', processing:'Processing / waiting for ' + aiService, success:'Enriched', reused:'Reused', error:'Method failed', cleanup:'Cleaning up', finished:'Finished', finished_with_errors:'Finished with errors', interrupted:'Interrupted — remaining methods pending'};
+          const names = {starting:'Starting', processing:'Processing / waiting for MiniCPM', success:'Enriched', reused:'Reused', error:'Method failed', cleanup:'Cleaning up', finished:'Finished', finished_with_errors:'Finished with errors', interrupted:'Interrupted — remaining methods pending'};
           const workerStatus = data.status === 'cancelled' ? `Cancelled · ${data.pending || 0} pending` : data.status === 'interrupted' ? `Interrupted · ${data.pending || 0} pending; failed method saved for retry` : names[data.status] || data.status;
           row.title.textContent = `Worker ${data.worker_id} · ${data.current} / ${data.total} · ${workerStatus}`;
           row.bar.max = Math.max(1, data.total); row.bar.value = data.current;
@@ -187,15 +180,15 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
             bar.value = data.total ? 90 * data.current / data.total : 90;
             label.textContent = `${data.current} / ${data.total} methods · ${data.status} · ${data.method}`;
           } else {
-            label.textContent = data.stage === 'cleanup' ? (aiService === 'MiniCPM' ? 'Cleaning up…' : 'Cleaning up Copilot conversation…') : data.stage === 'saving' ? 'Saving catalog…' : 'Scanning Python files…';
+            label.textContent = data.stage === 'cleanup' ? 'Cleaning up…' : data.stage === 'saving' ? 'Saving catalog…' : 'Scanning Python files…';
           }
         } else if (data.type === 'complete') {
           estimate.textContent = data.cancelled ? 'Build cancelled — saved results retained.' : data.interrupted ? 'Build interrupted — completion estimate unavailable.' : 'Build finished.';
-          completed = true; if (data.strategy) aiService = serviceFor(data.strategy);
+          completed = true;
           bar.value = data.interrupted ? (data.methods ? 90 * (data.methods - data.pending) / data.methods : 0) : 100;
           label.textContent = data.cancelled ? 'Build cancelled — successful results saved; remaining methods pending' : data.interrupted ? 'Build interrupted — successful results saved; remaining methods pending' : 'Catalog build complete';
           await loadSettings();
-          status.textContent = `${data.methods} methods · ${data.files} files · ${data.errors} skipped files · ${data.reused} reused · ${data.enriched} enriched · ${data.failed} failed · ${data.pending} pending. Catalog saved.${data.mode === 'fast' ? ' Fast scan complete; ${aiService} was not used. Existing unchanged explanations were preserved.' : data.interrupted ? (aiService === 'MiniCPM' ? ' Refresh to retry pending methods.' : ' Copilot window retained for inspection. Refresh to retry pending methods.') : aiService === 'MiniCPM' ? '' : data.conversation_deleted ? ' Copilot catalog conversation deleted.' : ' Copilot conversation deletion was not confirmed (or no conversation was needed).'}`;
+          status.textContent = `${data.methods} methods · ${data.files} files · ${data.errors} skipped files · ${data.reused} reused · ${data.enriched} enriched · ${data.failed} failed · ${data.pending} pending. Catalog saved.${data.mode === 'fast' ? ' Fast scan complete; MiniCPM was not used. Existing unchanged explanations were preserved.' : data.interrupted ? ' Refresh to retry pending methods.' : ''}`;
         }
       }
     }
@@ -203,7 +196,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   } catch(error) { status.textContent = error.message; label.textContent = 'Build did not complete'; estimate.textContent = 'Completion estimate unavailable.'; bar.value = 0;
     workerRows.forEach(row => { if (!['finished','finished_with_errors','interrupted'].includes(row.element.dataset.status)) row.title.textContent += ' · Connection lost; current worker state unknown'; });
   }
-  finally { setBusy(false); document.querySelector('#cancel-catalog').hidden = true; document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = false); strategyInputs().forEach(input => input.disabled = false); document.querySelector('#overwrite-catalog').disabled = false; document.querySelector('#catalog-worker-count').disabled = false; updateAiText(); }
+  finally { setBusy(false); document.querySelector('#cancel-catalog').hidden = true; document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = false); document.querySelector('#overwrite-catalog').disabled = false; document.querySelector('#catalog-worker-count').disabled = false; updateAiText(); }
 });
 document.querySelector('#cancel-catalog').addEventListener('click', async event => {
   const button = event.currentTarget; button.disabled = true; button.textContent = 'Cancelling…';
@@ -214,25 +207,19 @@ document.querySelector('#cancel-catalog').addEventListener('click', async event 
   } catch(error) { button.disabled = false; button.textContent = 'Cancel build'; document.querySelector('#catalog-status').textContent = error.message; }
 });
 function updateAiText() {
-  const auto = chosenStrategy() === 'auto';
-  aiService = serviceFor(chosenStrategy());
   const fast = (document.querySelector('input[name="catalog-mode"]:checked') || {}).value === 'fast';
-  const strategyBox = document.querySelector('#ai-strategy'); if (strategyBox) strategyBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
   const warning = document.querySelector('#overwrite-warning'); if (warning) warning.hidden = fast || !document.querySelector('#overwrite-catalog').checked;
   const workerField = document.querySelector('#catalog-worker-count'); if (workerField) workerField.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
   const overwriteBox = document.querySelector('#overwrite-catalog'); if (overwriteBox) overwriteBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
-  const minicpm = aiService === 'MiniCPM';
   const note = document.querySelector('.catalog-note');
-  if (note) note.textContent = auto ? 'Auto uses the MiniCPM service when it is reachable and otherwise opens Copilot with your signed-in Microsoft 365 account.' : minicpm ? 'Changed snippets are sent to the configured MiniCPM service.' : 'Changed snippets are analyzed using your signed-in Microsoft 365 Copilot account. The catalog conversation is deleted after completion.';
-  const heading = document.querySelector('.catalog-heading p'); if (heading) heading.textContent = `Source index & ${aiService} explanations`;
+  if (note) note.textContent = 'Changed snippets are sent to the configured MiniCPM service.';
+  const heading = document.querySelector('.catalog-heading p'); if (heading) heading.textContent = `Source index & MiniCPM explanations`;
   const help = document.querySelector('#catalog-mode-help');
   if (help && document.querySelector('input[name="catalog-mode"]:checked')) help.textContent = document.querySelector('input[name="catalog-mode"]:checked').value === 'fast'
-    ? `Fast scans Python files locally without using ${aiService}. Existing explanations are preserved for unchanged methods; new or changed methods can be enriched later with AI-assisted mode.`
-    : auto ? 'AI-assisted uses the MiniCPM service when it is reachable, otherwise a dedicated Copilot window. Do not interact with the Copilot window until cataloging finishes.'
-    : aiService === 'MiniCPM' ? 'AI-assisted sends new or changed methods to the configured MiniCPM service to explain them. No browser window is opened.'
-    : 'AI-assisted opens a dedicated Copilot window to explain new or changed methods. You can keep it in the background and use other windows, but do not type, navigate, close tabs, or otherwise interact with that Copilot window until cataloging finishes.';
+    ? `Fast scans Python files locally without using MiniCPM. Existing explanations are preserved for unchanged methods; new or changed methods can be enriched later with AI-assisted mode.`
+    : 'AI-assisted sends new or changed methods to the configured MiniCPM service to explain them.';
 }
-document.querySelectorAll('input[name="catalog-mode"], input[name="ai-strategy"], #overwrite-catalog').forEach(input => input.addEventListener('change', updateAiText));
+document.querySelectorAll('input[name="catalog-mode"], #overwrite-catalog').forEach(input => input.addEventListener('change', updateAiText));
 
 document.querySelector('#refresh-warning').addEventListener('click', event => {
   event.preventDefault();

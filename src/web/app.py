@@ -19,9 +19,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from settings import (PROJECT_ROOT, state_dir, configured_backends, configured_source, configured_sources,
+from settings import (PROJECT_ROOT, state_dir, configured_source, configured_sources,
                                      configured_threshold, configured_workers, read_config)
-from backends.factory import STRATEGIES, enrichment_factory, resolve_strategy, ranker_factory as configured_ranker_factory
+from backends.factory import enrichment_factory, ranker_factory as configured_ranker_factory
 from core.sources import scan_sources, normalize_sources, catalog_roots
 from enrichment.parallel import enrich_parallel
 from backends.laya import LayaRanker
@@ -29,7 +29,6 @@ from core.scanner import scan_library
 from core.service import find_methods
 from core.catalog import load_catalog, save_catalog, catalog_health
 from enrichment.pipeline import enrich_catalog
-from backends.copilot import CopilotClient
 
 
 _STATIC_DIR = Path(__file__).with_name("static")
@@ -38,11 +37,11 @@ _PROJECT_DIR = PROJECT_ROOT
 
 def create_app(*, source_root: Path | None = None, default_threshold: float | None = None,
                scanner: Callable = scan_library, ranker_factory: Callable = LayaRanker,
-               copilot_factory: Callable | None = None, data_directory: Path | None = None,
+               client_factory: Callable | None = None, data_directory: Path | None = None,
                model_loader: Callable | None = None) -> FastAPI:
     root = Path(data_directory) if data_directory is not None else _PROJECT_DIR
     state = state_dir(root)
-    injected_factory = copilot_factory
+    injected_factory = client_factory
     if ranker_factory is LayaRanker: ranker_factory = configured_ranker_factory(root)
     @asynccontextmanager
     async def lifespan(app):
@@ -85,7 +84,6 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"source_root": str(app.state.source_root),
                 "source_roots": list(map(str, app.state.source_roots)),
                 "threshold": app.state.default_threshold,
-                "enrichment_backend": configured_backends(root)["enrichment_backend"],
                 "catalog_workers": configured_workers(root),
                 "catalog_methods": len(catalog.methods) if catalog else None,
                 "catalog_health": catalog_health(catalog, app.state.source_roots)}
@@ -118,13 +116,11 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         app.state.default_threshold = threshold
         return settings()
 
-    def build_catalog(report=None, mode="ai", strategy=None, overwrite=False, workers=None) -> dict:
+    def build_catalog(report=None, mode="ai", overwrite=False, workers=None) -> dict:
         report = report or (lambda event: None)
-        used = None
-        copilot_factory = injected_factory
-        if mode == "ai" and copilot_factory is None:
-            used = resolve_strategy(root, strategy)
-            copilot_factory = enrichment_factory(root, used)
+        client_factory = injected_factory
+        if mode == "ai" and client_factory is None:
+            client_factory = enrichment_factory(root)
         report({"type": "progress", "stage": "scanning"})
         if app.state.run and app.state.run["active"]:
             raise HTTPException(409, "Wait for the active search to finish.")
@@ -134,32 +130,31 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         queued = sum(not (old.get((m.file, m.qualified_name)) and old[(m.file, m.qualified_name)].fingerprint == m.fingerprint and old[(m.file, m.qualified_name)].enrichment_status == "success" and old[(m.file, m.qualified_name)].enrichment) for m in scanned.methods)
         report({"type": "progress", "stage": "preparing", "queued": queued, "total": len(scanned.methods)})
         workers = (workers or configured_workers(root)) if mode == "ai" else 1
-        client = copilot_factory() if mode == "ai" and workers == 1 else None
+        client = client_factory() if mode == "ai" and workers == 1 else None
         def checkpoint(catalog):
             save_catalog(catalog, state / "catalog.json")
             app.state.catalog = catalog
-        deleted = None
         try:
             callbacks = dict(on_checkpoint=checkpoint, cancel_event=app.state.catalog_cancel,
                 on_progress=lambda current, total, method, status: report({"type": "progress", "stage": "enriching", "current": current, "total": total, "method": method.qualified_name, "status": status}),
                 on_error=lambda method, reason: report({"type": "method_error", "method": method.qualified_name, "message": reason}))
             if workers > 1:
-                catalog, summary, deleted = enrich_parallel(scanned, previous, copilot_factory, workers,
+                catalog, summary = enrich_parallel(scanned, previous, client_factory, workers,
                     on_worker=lambda event: report({"type": "worker_progress", **event}), **callbacks)
             else:
                 catalog, summary = enrich_catalog(scanned, previous, client, **callbacks)
         finally:
             report({"type": "progress", "stage": "cleanup"})
-            if client is not None: deleted = client.close()
+            if client is not None: client.close()
         report({"type": "progress", "stage": "saving"})
         save_catalog(catalog, state / "catalog.json")
         app.state.catalog = catalog
         return {"methods": len(catalog.methods), "files": len(catalog.files),
                 "errors": len(catalog.errors), "reused": summary.reused,
                 "enriched": summary.enriched, "failed": summary.failed,
-                "conversation_deleted": deleted, "pending": summary.pending,
+                "pending": summary.pending,
                 "interrupted": mode == "ai" and (bool(getattr(client, "interrupted", False)) or summary.pending > 0),
-                "mode": mode, "strategy": used, "cancelled": app.state.catalog_cancel.is_set()}
+                "mode": mode, "cancelled": app.state.catalog_cancel.is_set()}
 
     @app.post("/api/catalog/cancel")
     def cancel_catalog() -> dict:
@@ -170,9 +165,8 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"cancel_requested": True}
 
     @app.post("/api/catalog")
-    def build_catalog_sync(mode: str = "ai", strategy: str | None = None, overwrite: bool = False, workers: int | None = None) -> dict:
+    def build_catalog_sync(mode: str = "ai", overwrite: bool = False, workers: int | None = None) -> dict:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
-        if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
             if app.state.catalog_building:
@@ -180,14 +174,13 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             app.state.catalog_building = True
             app.state.catalog_cancel.clear()
         try:
-            return build_catalog(mode=mode, strategy=strategy, overwrite=overwrite, workers=workers)
+            return build_catalog(mode=mode, overwrite=overwrite, workers=workers)
         finally:
             app.state.catalog_building = False
 
     @app.post("/api/catalog/stream")
-    def stream_catalog(mode: str = "ai", strategy: str | None = None, overwrite: bool = False, workers: int | None = None) -> StreamingResponse:
+    def stream_catalog(mode: str = "ai", overwrite: bool = False, workers: int | None = None) -> StreamingResponse:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
-        if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
             if app.state.catalog_building or (app.state.run and app.state.run["active"]):
@@ -197,7 +190,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         updates = queue.Queue()
         def worker():
             try:
-                result = build_catalog(updates.put, mode=mode, strategy=strategy, overwrite=overwrite, workers=workers)
+                result = build_catalog(updates.put, mode=mode, overwrite=overwrite, workers=workers)
                 updates.put({"type": "complete", **result})
             except Exception as error:
                 logging.getLogger("uvicorn.error").exception("Catalog build failed")

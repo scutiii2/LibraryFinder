@@ -37,7 +37,7 @@ def test_cli_accepts_multiple_sources(tmp_path):
         root.mkdir()
         (root / "util.py").write_text("def lookup(): pass\n")
     target = tmp_path / "catalog.json"
-    assert main(["catalog", "--no-copilot", "--source", *map(str, roots), "--catalog", str(target)]) == 0
+    assert main(["catalog", "--no-enrichment", "--source", *map(str, roots), "--catalog", str(target)]) == 0
     assert len(load_catalog(target).methods) == 2
     (tmp_path / "data").mkdir(exist_ok=True); (tmp_path / "data" / "library-source.txt").write_text("\n".join(map(str, roots)))
     assert configured_sources(tmp_path) == tuple(roots)

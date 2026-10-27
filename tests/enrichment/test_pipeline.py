@@ -5,7 +5,7 @@ from core.models import Enrichment
 from core.scanner import scan_library
 
 
-class FakeCopilot:
+class FakeClient:
     def __init__(self, fail=()): self.fail, self.calls = set(fail), []
     def enrich(self, method):
         self.calls.append(method.qualified_name)
@@ -33,7 +33,7 @@ def test_success_is_saved_before_next_method_is_requested(library_root, tmp_path
     from core.catalog import save_catalog, load_catalog
     scanned = scan_library(library_root)
     destination = tmp_path / "catalog.json"
-    class InspectingClient(FakeCopilot):
+    class InspectingClient(FakeClient):
         def enrich(self, method):
             if self.calls:
                 saved = load_catalog(destination)
@@ -54,7 +54,7 @@ def test_cancel_preserves_success_and_does_not_request_next_method(library_root)
     from threading import Event
     scanned = scan_library(library_root)
     event = Event()
-    class Client(FakeCopilot):
+    class Client(FakeClient):
         def enrich(self, method):
             value = super().enrich(method)
             event.set()
@@ -72,7 +72,7 @@ def test_cancel_preserves_success_and_does_not_request_next_method(library_root)
 
 def test_failure_reports_safe_reason_without_exception_content(library_root):
     scanned = scan_library(library_root)
-    client = FakeCopilot(fail=[m.qualified_name for m in scanned.methods])
+    client = FakeClient(fail=[m.qualified_name for m in scanned.methods])
     errors = []
     _, summary = enrich_catalog(scanned, None, client, on_error=lambda method, reason: errors.append(reason))
     assert summary.failed == len(scanned.methods)
@@ -82,15 +82,15 @@ def test_failure_reports_safe_reason_without_exception_content(library_root):
 
 def test_enrichment_reuses_unchanged_success_and_retries_failed_method(library_root):
     scanned = scan_library(library_root)
-    first = FakeCopilot()
+    first = FakeClient()
     enriched, first_summary = enrich_catalog(scanned, None, first)
     assert first_summary.enriched == len(scanned.methods)
-    second = FakeCopilot()
+    second = FakeClient()
     reused, summary = enrich_catalog(scanned, enriched, second)
     assert summary.reused == len(scanned.methods)
     assert second.calls == []
     failed = replace(enriched, methods=(replace(enriched.methods[0], enrichment=None, enrichment_status="error"), *enriched.methods[1:]))
-    retry = FakeCopilot()
+    retry = FakeClient()
     result, summary = enrich_catalog(scanned, failed, retry)
     assert summary.enriched == 1
     assert retry.calls == [scanned.methods[0].qualified_name]

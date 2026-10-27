@@ -1,1 +1,1 @@
-"""Model backends: Copilot browser, MiniCPM and Laya services."""
+"""Model backends: MiniCPM and Laya services."""

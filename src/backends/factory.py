@@ -4,44 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backends.copilot import CopilotClient
 from backends.laya import LayaRanker
 from settings import configured_backends
 
 
-STRATEGIES = ("auto", "minicpm", "copilot")
-
-
-def minicpm_reachable(url: str) -> bool:
-    """True when the MiniCPM service answers at all; any HTTP reply counts, only a dead connection does not."""
-    from backends.http_json import ServiceError, ServiceUnreachable, request_json
-    try:
-        request_json("GET", url.rstrip("/") + "/health", timeout=3, retries=0)
-    except ServiceUnreachable:
-        return False
-    except ServiceError:
-        pass
-    return True
-
-
-def resolve_strategy(project_root: Path, strategy: str | None = None) -> str:
-    """Turn auto (or the configured default) into minicpm or copilot: MiniCPM when its service is up."""
+def enrichment_factory(project_root: Path):
+    """Return a zero-argument factory for the MiniCPM catalog client."""
+    from backends.minicpm import MiniCPMClient
     settings = configured_backends(project_root)
-    strategy = strategy or settings["enrichment_backend"]
-    if strategy not in STRATEGIES:
-        raise ValueError("strategy must be auto, minicpm or copilot")
-    if strategy == "auto":
-        return "minicpm" if minicpm_reachable(settings["minicpm_url"]) else "copilot"
-    return strategy
-
-
-def enrichment_factory(project_root: Path, strategy: str | None = None):
-    """Return a zero-argument callable that builds the catalog client for the strategy (default: configured)."""
-    settings = configured_backends(project_root)
-    if resolve_strategy(project_root, strategy) == "minicpm":
-        from backends.minicpm import MiniCPMClient
-        return lambda: MiniCPMClient(settings["minicpm_url"])
-    return CopilotClient
+    return lambda: MiniCPMClient(settings["minicpm_url"])
 
 
 def ranker_factory(project_root: Path):

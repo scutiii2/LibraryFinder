@@ -13,7 +13,7 @@ from core.search import retrieve
 from core.service import find_methods
 from backends.factory import enrichment_factory, ranker_factory
 from enrichment.pipeline import enrich_catalog
-from settings import (DATA_DIR, PROJECT_ROOT, configured_backends, configured_sources,
+from settings import (DATA_DIR, PROJECT_ROOT, configured_sources,
                                      configured_threshold, configured_workers)
 
 
@@ -24,7 +24,7 @@ def _parser() -> argparse.ArgumentParser:
     catalog.add_argument("--source", type=Path, nargs="+", default=None)
     catalog.add_argument("--catalog", type=Path, default=DATA_DIR / "catalog.json")
     catalog.add_argument("--strict", action="store_true")
-    catalog.add_argument("--no-copilot", action="store_true")
+    catalog.add_argument("--no-enrichment", action="store_true")
     find = commands.add_parser("find")
     find.add_argument("goal")
     find.add_argument("--catalog", type=Path, default=DATA_DIR / "catalog.json")
@@ -46,39 +46,33 @@ def main(argv: Sequence[str] | None = None) -> int:
                 previous = candidate if len(catalog_roots(candidate)) > 1 or catalog_roots(candidate) == catalog_roots(scanned) else None
             except Exception:
                 previous = None
-        if args.no_copilot:
+        if args.no_enrichment:
             catalog = scanned
             summary = None
         else:
             root = PROJECT_ROOT
             factory = enrichment_factory(root)
-            if configured_backends(root)["enrichment_backend"] == "minicpm":
-                print("Cataloging sends changed source snippets to the configured MiniCPM service.")
-            else:
-                print("Cataloging sends changed source snippets to your signed-in Microsoft 365 Copilot account.")
+            print("Cataloging sends changed source snippets to the configured MiniCPM service.")
             workers = configured_workers(root)
             if workers > 1:
                 from enrichment.parallel import enrich_parallel
-                catalog, summary, deleted = enrich_parallel(scanned, previous, factory, workers,
+                catalog, summary = enrich_parallel(scanned, previous, factory, workers,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
                 save_catalog(catalog, args.catalog)
                 print(f"cataloged {len(catalog.methods)} methods; reused {summary.reused}; enriched {summary.enriched}; failed {summary.failed}; pending {summary.pending}")
-                if not deleted: print("Copilot conversation cleanup was not confirmed for every worker.")
                 return 1 if args.strict and (catalog.errors or summary.failed or summary.pending) else 0
             client = factory()
             try:
                 catalog, summary = enrich_catalog(scanned, previous, client,
                     on_checkpoint=lambda snapshot: save_catalog(snapshot, args.catalog))
             finally:
-                deleted = client.close()
-                if client.conversation_url and not deleted:
-                    print("WARNING: the dedicated Copilot conversation could not be confirmed deleted.")
+                client.close()
         save_catalog(catalog, args.catalog)
         print(f"cataloged {len(catalog.methods)} methods; skipped {len(catalog.errors)} files")
         if summary:
             print(f"enrichment: reused {summary.reused}; enriched {summary.enriched}; failed {summary.failed}; pending {summary.pending}")
             if summary.pending:
-                print("Catalog build interrupted; successful results saved. Copilot window retained for inspection.")
+                print("Catalog build interrupted; successful results saved. Rebuild to retry pending methods.")
         return 1 if args.strict and (catalog.errors or (summary and summary.failed)) else 0
     threshold = configured_threshold(PROJECT_ROOT)
     catalog = load_catalog(args.catalog)

@@ -30,14 +30,14 @@ def test_configured_threshold_rejects_values_outside_zero_to_one(tmp_path):
 def test_catalog_command_writes_catalog_and_reports_skipped_files(capsys, library_root, tmp_path):
     destination = tmp_path / "catalog.json"
 
-    assert main(["catalog", "--no-copilot", "--source", str(library_root), "--catalog", str(destination)]) == 0
+    assert main(["catalog", "--no-enrichment", "--source", str(library_root), "--catalog", str(destination)]) == 0
     assert destination.exists()
     assert "cataloged" in capsys.readouterr().out
 
 
 def test_find_warns_when_catalog_is_stale(capsys, library_root, tmp_path):
     destination = tmp_path / "catalog.json"
-    main(["catalog", "--no-copilot", "--source", str(library_root), "--catalog", str(destination)])
+    main(["catalog", "--no-enrichment", "--source", str(library_root), "--catalog", str(destination)])
     (library_root / "drivers" / "sample.py").write_text("def changed():\n    pass\n")
 
     assert main(["find", "wait for ticket", "--catalog", str(destination)]) == 0
@@ -46,7 +46,7 @@ def test_find_warns_when_catalog_is_stale(capsys, library_root, tmp_path):
 
 def test_find_renders_internal_warning_and_source_location(capsys, library_root, tmp_path, monkeypatch):
     destination = tmp_path / "catalog.json"
-    main(["catalog", "--no-copilot", "--source", str(library_root), "--catalog", str(destination)])
+    main(["catalog", "--no-enrichment", "--source", str(library_root), "--catalog", str(destination)])
 
     class UnavailableRanker:
         def __init__(self, on_evaluation=None):
@@ -65,7 +65,7 @@ def test_find_renders_internal_warning_and_source_location(capsys, library_root,
 
 def test_find_streams_each_laya_decision_and_summarizes_hits(capsys, library_root, tmp_path, monkeypatch):
     destination = tmp_path / "catalog.json"
-    main(["catalog", "--no-copilot", "--source", str(library_root), "--catalog", str(destination)])
+    main(["catalog", "--no-enrichment", "--source", str(library_root), "--catalog", str(destination)])
     capsys.readouterr()
 
     class LowConfidenceRanker:

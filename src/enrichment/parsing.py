@@ -16,9 +16,9 @@ def decode_reply(reply):
 
 def parse_enrichment(reply: str) -> Enrichment:
     try: value = decode_reply(reply)
-    except json.JSONDecodeError as exc: raise EnrichmentResponseError("Copilot did not return JSON") from exc
+    except json.JSONDecodeError as exc: raise EnrichmentResponseError("Enrichment did not return JSON") from exc
     if not isinstance(value, dict):
-        raise EnrichmentResponseError("Copilot response must be a JSON object")
+        raise EnrichmentResponseError("Enrichment response must be a JSON object")
     missing = REQUIRED - set(value)
     if missing:
         raise EnrichmentResponseError("Missing fields: " + ", ".join(sorted(missing)))
@@ -34,6 +34,6 @@ def parse_enrichment(reply: str) -> Enrichment:
             raise EnrichmentResponseError(f"Invalid field type: {field}; expected text, text list, or description object")
         value[field] = item
     if any(not isinstance(value[x], str) for x in ("summary", "purpose", "automation_context")):
-        raise EnrichmentResponseError("Copilot response has invalid text fields")
+        raise EnrichmentResponseError("Enrichment response has invalid text fields")
     return Enrichment(value["summary"], value["purpose"], tuple(value["inputs"]), tuple(value["outputs"]), tuple(value["side_effects"]), value["automation_context"], tuple(value["keywords"]), tuple(value["caveats"]))
 

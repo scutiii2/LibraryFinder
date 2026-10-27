@@ -26,3 +26,13 @@ Spec: user-provided request, 2026-10-27.
 - Review, commit, do not push.
 
 Review focus: saved tuple fields, cancellation/pending state, parallel checkpoint durability, fast mode without AI calls, service failures without fallback.
+
+## Verification record
+
+- Baseline: 118 tests passed; neutral shared-types commit: 120 tests passed.
+- Removal: full regression suite passed; obsolete backend settings and workers alias covered.
+- JavaScript syntax and forbidden-reference scans passed.
+- Independent review found no actionable defects.
+- Fresh HTTP server: Settings and page expose MiniCPM without strategy selection; one synthetic method enriched against the configured live MiniCPM service, with no failures or pending methods.
+- The existing server on port 8000 still has the old API loaded and needs restarting. The smoke server used a free port and temporary catalog, then shut down.
+- Direct script startup uses PYTHONPATH=src, as already configured by run.bat.

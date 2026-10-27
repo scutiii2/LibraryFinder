@@ -12,7 +12,6 @@ requires-python = ">=3.11"
 laya = ["laya"]
 dev = ["pytest>=8"]
 web = ["fastapi", "uvicorn"]
-copilot = ["playwright>=1.49"]
 
 [project.scripts]
 library-finder = "cli:main"

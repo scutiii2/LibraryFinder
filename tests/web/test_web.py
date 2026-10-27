@@ -284,3 +284,23 @@ def test_overwrite_reanalyzes_methods_that_already_have_explanations(tmp_path, m
     app.state.catalog = _catalog(done)
     result = _endpoint(app, "/api/catalog")(mode, None, overwrite)
     assert len(seen) == queued
+
+
+@pytest.mark.parametrize("workers", [0, 6])
+def test_catalog_rejects_worker_counts_outside_one_to_five(tmp_path, workers):
+    app = create_app(source_root=tmp_path)
+    with pytest.raises(HTTPException) as error: _endpoint(app, "/api/catalog")("ai", None, False, workers)
+    assert error.value.status_code == 422
+
+
+def test_catalog_workers_parameter_overrides_the_configured_count(tmp_path, monkeypatch):
+    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
+    seen = []
+    def parallel(scanned, previous, factory, workers, **kwargs):
+        from enrichment.pipeline import EnrichmentSummary
+        seen.append(workers)
+        return scanned, EnrichmentSummary(0, 0, 0, 0), None
+    monkeypatch.setattr("web.app.enrich_parallel", parallel)
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")), copilot_factory=lambda: None)
+    _endpoint(app, "/api/catalog")("ai", None, False, 3)
+    assert seen == [3]

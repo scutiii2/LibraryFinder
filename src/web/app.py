@@ -86,6 +86,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
                 "source_roots": list(map(str, app.state.source_roots)),
                 "threshold": app.state.default_threshold,
                 "enrichment_backend": configured_backends(root)["enrichment_backend"],
+                "catalog_workers": configured_workers(root),
                 "catalog_methods": len(catalog.methods) if catalog else None,
                 "catalog_health": catalog_health(catalog, app.state.source_roots)}
 
@@ -117,7 +118,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         app.state.default_threshold = threshold
         return settings()
 
-    def build_catalog(report=None, mode="ai", strategy=None, overwrite=False) -> dict:
+    def build_catalog(report=None, mode="ai", strategy=None, overwrite=False, workers=None) -> dict:
         report = report or (lambda event: None)
         used = None
         copilot_factory = injected_factory
@@ -132,7 +133,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         old = {(m.file, m.qualified_name): m for m in previous.methods} if previous else {}
         queued = sum(not (old.get((m.file, m.qualified_name)) and old[(m.file, m.qualified_name)].fingerprint == m.fingerprint and old[(m.file, m.qualified_name)].enrichment_status == "success" and old[(m.file, m.qualified_name)].enrichment) for m in scanned.methods)
         report({"type": "progress", "stage": "preparing", "queued": queued, "total": len(scanned.methods)})
-        workers = configured_workers(root) if mode == "ai" else 1
+        workers = (workers or configured_workers(root)) if mode == "ai" else 1
         client = copilot_factory() if mode == "ai" and workers == 1 else None
         def checkpoint(catalog):
             save_catalog(catalog, state / "catalog.json")
@@ -169,23 +170,25 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"cancel_requested": True}
 
     @app.post("/api/catalog")
-    def build_catalog_sync(mode: str = "ai", strategy: str | None = None, overwrite: bool = False) -> dict:
+    def build_catalog_sync(mode: str = "ai", strategy: str | None = None, overwrite: bool = False, workers: int | None = None) -> dict:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
+        if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
             if app.state.catalog_building:
                 raise HTTPException(409, "Catalog building is already running.")
             app.state.catalog_building = True
             app.state.catalog_cancel.clear()
         try:
-            return build_catalog(mode=mode, strategy=strategy, overwrite=overwrite)
+            return build_catalog(mode=mode, strategy=strategy, overwrite=overwrite, workers=workers)
         finally:
             app.state.catalog_building = False
 
     @app.post("/api/catalog/stream")
-    def stream_catalog(mode: str = "ai", strategy: str | None = None, overwrite: bool = False) -> StreamingResponse:
+    def stream_catalog(mode: str = "ai", strategy: str | None = None, overwrite: bool = False, workers: int | None = None) -> StreamingResponse:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
+        if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
             if app.state.catalog_building or (app.state.run and app.state.run["active"]):
                 raise HTTPException(409, "Another operation is running.")
@@ -194,7 +197,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         updates = queue.Queue()
         def worker():
             try:
-                result = build_catalog(updates.put, mode=mode, strategy=strategy, overwrite=overwrite)
+                result = build_catalog(updates.put, mode=mode, strategy=strategy, overwrite=overwrite, workers=workers)
                 updates.put({"type": "complete", **result})
             except Exception as error:
                 logging.getLogger("uvicorn.error").exception("Catalog build failed")

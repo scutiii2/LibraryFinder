@@ -18,4 +18,4 @@
 .catalog-strip>div:has(>#catalog-status){padding:20px 0 20px 24px}
 .catalog-strip>div:has(>#catalog-progress){grid-column:1/-1;background:#f8f9fd;border:1px solid #e3e7ee;border-radius:8px;margin:0 24px 24px;padding:18px;display:flex;flex-direction:column;gap:8px;min-width:0}
 
-.catalog-mode #overwrite-option{border-radius:7px;margin:0 0 12px;max-width:max-content}
+.catalog-mode #overwrite-option,.catalog-mode #workers-option{border-radius:7px;margin:0 0 12px;max-width:max-content}

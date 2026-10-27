@@ -199,3 +199,11 @@ def test_minicpm_sends_a_worked_example_before_the_method(service):
     MiniCPMClient(service.url).enrich(_method())
     roles = [message["role"] for message in service.seen[0][2]["messages"]]
     assert roles == ["user", "assistant", "user"]
+
+
+def test_model_json_failure_502_fails_only_that_method_without_retry(service):
+    service.replies = [(502, {"detail": {"message": "The model did not return valid JSON"}})]
+    client = MiniCPMClient(service.url)
+    with pytest.raises(CopilotResponseError, match="valid JSON"):
+        client.enrich(_method())
+    assert client.interrupted is False and len(service.seen) == 1

@@ -153,7 +153,7 @@ class MiniCPMClient:
             self.interrupted = True
             raise CopilotUnavailable(f"MiniCPM service is not reachable at {self.url}. Start it and rebuild.") from error
         except ServiceError as error:
-            if error.status in (401, 502):
+            if error.status == 401 or (error.status == 502 and not error.detail):
                 self.interrupted = True
                 raise CopilotUnavailable(f"MiniCPM service refused the request ({error}). Build paused.") from error
             raise CopilotResponseError(f"MiniCPM request failed ({error})") from error

@@ -41,7 +41,7 @@ Catalog enrichment and Laya ranking can use separate HTTP services, running on t
 }
 ```
 
-- `enrichment_backend`: `copilot` (default, browser) or `minicpm` (MiniCPM service, one method per request, no browser).
+- `enrichment_backend`: `copilot` (default, browser), `minicpm` (MiniCPM service, one method per request, no browser) or `auto` (MiniCPM when its service answers, otherwise Copilot). This is the default; Settings > Utility catalog > AI-assist strategy picks one per build.
 - `laya_backend`: `local` (default, loads Laya in this process) or `service` (calls the Laya service; nothing is loaded here).
 - Keep device addresses and tokens out of the repo: copy `.env.example` to `.env` (gitignored) and set `MINICPM_URL`, `LAYA_URL`, `MINICPM_TOKEN` and `LAYA_TOKEN`. Order of precedence: real environment variables, then `.env`, then `configs.json`. Tokens are never read from `configs.json`.
 - If the MiniCPM service is down, the build pauses and keeps results saved so far. If the Laya service is down, search falls back to deterministic results.

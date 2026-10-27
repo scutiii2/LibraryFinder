@@ -1,4 +1,5 @@
 .catalog-strip .catalog-mode{grid-column:1/-1;padding:20px 24px!important;margin:0;border-bottom:1px solid #e3e7ee}
+.catalog-mode fieldset:disabled{opacity:.5}
 .catalog-mode fieldset{border:0;padding:0;margin:0 0 12px;display:flex;gap:0;flex-wrap:wrap}
 .catalog-mode legend{font-size:12px;font-weight:600;margin-bottom:10px}
 .catalog-mode label{display:flex;align-items:center;gap:8px;border:1px solid #dce1e9;padding:10px 16px;margin:0;cursor:pointer;background:#fff;color:#657187}

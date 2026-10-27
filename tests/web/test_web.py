@@ -109,7 +109,29 @@ def test_catalog_enriches_with_copilot_and_reports_cleanup(tmp_path):
     result = _endpoint(app, "/api/catalog")()
 
     assert result == {"methods": 1, "files": 0, "errors": 0, "reused": 0,
-                      "enriched": 1, "failed": 0, "conversation_deleted": True, "pending": 0, "interrupted": False, "mode": "ai", "cancelled": False}
+                      "enriched": 1, "failed": 0, "conversation_deleted": True, "pending": 0, "interrupted": False, "mode": "ai", "strategy": None, "cancelled": False}
+
+
+@pytest.mark.parametrize("strategy, reachable, expected", [
+    ("minicpm", False, "minicpm"), ("copilot", True, "copilot"), ("auto", True, "minicpm"), ("auto", False, "copilot"),
+    (None, False, "copilot")])
+def test_catalog_strategy_picks_the_service(tmp_path, monkeypatch, strategy, reachable, expected):
+    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
+    monkeypatch.setattr("backends.factory.minicpm_reachable", lambda url: reachable)
+    chosen = []
+    def factory(root, used):
+        chosen.append(used)
+        return lambda: type("C", (), {"enrich": lambda self, m: (_ for _ in ()).throw(RuntimeError("stop")), "close": lambda self: True})()
+    monkeypatch.setattr("web.app.enrichment_factory", factory)
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(_method("libs.find")))
+    result = _endpoint(app, "/api/catalog")("ai", strategy)
+    assert chosen == [expected] and result["strategy"] == expected
+
+
+def test_catalog_rejects_unknown_strategy(tmp_path):
+    app = create_app(source_root=tmp_path)
+    with pytest.raises(HTTPException) as error: _endpoint(app, "/api/catalog")("ai", "gpt")
+    assert error.value.status_code == 422
 
 
 def test_cancel_catalog_sets_shared_event_only_during_active_build(tmp_path):

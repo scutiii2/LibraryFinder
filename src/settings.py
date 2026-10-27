@@ -88,8 +88,8 @@ def configured_backends(project_root: Path) -> dict:
                 "minicpm_url": os.environ.get("MINICPM_URL") or config.get("minicpm_url", "http://127.0.0.1:9130"),
                 "laya_backend": config.get("laya_backend", "local"),
                 "laya_url": os.environ.get("LAYA_URL") or config.get("laya_url", "http://127.0.0.1:9120")}
-    if settings["enrichment_backend"] not in ("copilot", "minicpm"):
-        raise ValueError("enrichment_backend must be copilot or minicpm")
+    if settings["enrichment_backend"] not in ("auto", "copilot", "minicpm"):
+        raise ValueError("enrichment_backend must be auto, copilot or minicpm")
     if settings["laya_backend"] not in ("local", "service"):
         raise ValueError("laya_backend must be local or service")
     return settings

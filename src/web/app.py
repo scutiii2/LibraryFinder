@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from settings import (PROJECT_ROOT, state_dir, configured_backends, configured_source, configured_sources,
                                      configured_threshold, configured_workers, read_config)
-from backends.factory import enrichment_factory, ranker_factory as configured_ranker_factory
+from backends.factory import STRATEGIES, enrichment_factory, resolve_strategy, ranker_factory as configured_ranker_factory
 from core.sources import scan_sources, normalize_sources, catalog_roots
 from enrichment.parallel import enrich_parallel
 from backends.laya import LayaRanker
@@ -42,7 +42,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
                model_loader: Callable | None = None) -> FastAPI:
     root = Path(data_directory) if data_directory is not None else _PROJECT_DIR
     state = state_dir(root)
-    if copilot_factory is None: copilot_factory = enrichment_factory(root)
+    injected_factory = copilot_factory
     if ranker_factory is LayaRanker: ranker_factory = configured_ranker_factory(root)
     @asynccontextmanager
     async def lifespan(app):
@@ -117,8 +117,13 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         app.state.default_threshold = threshold
         return settings()
 
-    def build_catalog(report=None, mode="ai") -> dict:
+    def build_catalog(report=None, mode="ai", strategy=None) -> dict:
         report = report or (lambda event: None)
+        used = None
+        copilot_factory = injected_factory
+        if mode == "ai" and copilot_factory is None:
+            used = resolve_strategy(root, strategy)
+            copilot_factory = enrichment_factory(root, used)
         report({"type": "progress", "stage": "scanning"})
         if app.state.run and app.state.run["active"]:
             raise HTTPException(409, "Wait for the active search to finish.")
@@ -153,7 +158,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
                 "enriched": summary.enriched, "failed": summary.failed,
                 "conversation_deleted": deleted, "pending": summary.pending,
                 "interrupted": mode == "ai" and (bool(getattr(client, "interrupted", False)) or summary.pending > 0),
-                "mode": mode, "cancelled": app.state.catalog_cancel.is_set()}
+                "mode": mode, "strategy": used, "cancelled": app.state.catalog_cancel.is_set()}
 
     @app.post("/api/catalog/cancel")
     def cancel_catalog() -> dict:
@@ -164,21 +169,23 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"cancel_requested": True}
 
     @app.post("/api/catalog")
-    def build_catalog_sync(mode: str = "ai") -> dict:
+    def build_catalog_sync(mode: str = "ai", strategy: str | None = None) -> dict:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
+        if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         with app.state.catalog_lock:
             if app.state.catalog_building:
                 raise HTTPException(409, "Catalog building is already running.")
             app.state.catalog_building = True
             app.state.catalog_cancel.clear()
         try:
-            return build_catalog(mode=mode)
+            return build_catalog(mode=mode, strategy=strategy)
         finally:
             app.state.catalog_building = False
 
     @app.post("/api/catalog/stream")
-    def stream_catalog(mode: str = "ai") -> StreamingResponse:
+    def stream_catalog(mode: str = "ai", strategy: str | None = None) -> StreamingResponse:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
+        if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         with app.state.catalog_lock:
             if app.state.catalog_building or (app.state.run and app.state.run["active"]):
                 raise HTTPException(409, "Another operation is running.")
@@ -187,7 +194,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         updates = queue.Queue()
         def worker():
             try:
-                result = build_catalog(updates.put, mode=mode)
+                result = build_catalog(updates.put, mode=mode, strategy=strategy)
                 updates.put({"type": "complete", **result})
             except Exception as error:
                 logging.getLogger("uvicorn.error").exception("Catalog build failed")

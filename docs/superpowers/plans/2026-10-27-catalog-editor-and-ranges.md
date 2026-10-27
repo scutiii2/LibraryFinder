@@ -19,9 +19,20 @@
 
 ## Tasks
 
-- [ ] Add failing web/enrichment tests for list filtering/pagination, creation/edit/clear, validation, busy conflicts, persistence compatibility, manual preservation/overwrite and source safety.
-- [ ] Add Enrichment.source/edited_fingerprint and shared reuse/staleness logic; update Laya attribution and catalog health.
-- [ ] Add catalog list/detail/source/update APIs and overwrite_manual to both build endpoints, with atomic persistence and admission locking.
-- [ ] Add paginated browser, accessible editor, source context and nested overwrite opt-in. Run tests and syntax check; commit `feat: description editor`.
-- [ ] Add Workers stepper and confidence range pairs, preserving IDs/value/touched semantics; verify syntax and full suite.
-- [ ] Inspect Settings/Search at desktop and mobile widths, exercise editor and range controls, resolve issues, commit `feat: redesigned range controls`, verify clean tree.
+- [x] Add failing web/enrichment tests for list filtering/pagination, creation/edit/clear, validation, busy conflicts, persistence compatibility, manual preservation/overwrite and source safety.
+- [x] Add Enrichment.source/edited_fingerprint and shared reuse/staleness logic; update Laya attribution and catalog health.
+- [x] Add catalog list/detail/source/update APIs and overwrite_manual to both build endpoints, with atomic persistence and admission locking.
+- [x] Add paginated browser, accessible editor, source context and nested overwrite opt-in. Run tests and syntax check; commit `feat: description editor`.
+- [x] Add Workers stepper and confidence range pairs, preserving IDs/value/touched semantics; verify syntax and full suite.
+- [x] Inspect Settings/Search at desktop and mobile widths, exercise editor and range controls, resolve issues, commit `feat: redesigned range controls`, verify clean tree.
+
+
+## Verification record
+
+- Description editor: 29 new focused cases first failed for missing endpoints/fields, then passed. Added coverage for persistence failure, both overwrite APIs, and manual attribution to Laya.
+- Full regression suite: 132 passed. `node --check src/web/static/app.js` and `git diff --check` passed.
+- Independent reviews found no actionable issues in either feature.
+- Ran the app on port 8000 with `PYTHONPATH=src`; restarted the pre-existing server so the API and static assets matched.
+- Browser QA: saved a description for a failed method, verified Manual status and scanner context/source preview, then cleared it to Pending. Restored the pre-QA catalog file and restarted the app.
+- Responsive Settings and Search checked at 1440, 760, and 390 pixels: no document overflow. Workers obeys 1–5 bounds and touched state, disables in Fast mode, and the manual overwrite opt-in enables only under Overwrite. Slider and number inputs synchronize in both directions and support keyboard arrows; focus rings are visible.
+- Screenshots saved outside the repository in this chat's visualization directory. No push requested or performed.

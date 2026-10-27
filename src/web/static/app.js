@@ -15,6 +15,7 @@ function setBusy(busy) {
   operationBusy = busy;
   updateDescriptionBusy();
   goal.disabled = busy; threshold.disabled = busy; submit.disabled = busy;
+  syncRangeAvailability();
   form.setAttribute('aria-busy', String(busy));
   document.querySelectorAll('.chip').forEach(button => button.disabled = busy);
   document.querySelector('#build-catalog').disabled = busy;
@@ -103,7 +104,8 @@ async function loadSettings(keepStatus = false) {
   updateAiText();
   await loadCatalogMethods();
   document.querySelector('#source-root').value = (data.source_roots || [data.source_root]).join('\n');
-  document.querySelector('#default-threshold').value = data.threshold;
+  document.querySelector('#default-threshold').value = data.threshold.toFixed(2);
+  syncConfidenceRanges();
   if (!keepStatus) document.querySelector('#catalog-status').textContent = `${(data.source_roots || [data.source_root]).length} library directories · ${data.catalog_methods === null ? 'Ready to build' : data.catalog_methods + ' methods cataloged'}`;
   document.querySelector('#catalog-warning').hidden = !data.catalog_health.needs_refresh;
   document.querySelector('#catalog-warning-reasons').textContent = data.catalog_health.reasons.join('; ');
@@ -113,7 +115,7 @@ document.querySelector('#settings-form').addEventListener('submit', async event 
   try {
     const response = await fetch('/api/settings', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({source_root:document.querySelector('#source-root').value,threshold:Number(document.querySelector('#default-threshold').value)})});
     const data = await response.json(); if(!response.ok) throw new Error(data.detail);
-    threshold.value = data.threshold; status.textContent = 'Settings saved. Refresh the catalog after changing its directory.'; await loadSettings();
+    threshold.value = data.threshold.toFixed(2); syncConfidenceRanges(); status.textContent = 'Settings saved. Refresh the catalog after changing its directory.'; await loadSettings();
   } catch(error) { status.textContent = error.message; }
 });
 document.querySelector('#build-catalog').addEventListener('click', async () => {
@@ -216,9 +218,10 @@ document.querySelector('#cancel-catalog').addEventListener('click', async event 
 function updateAiText() {
   const fast = (document.querySelector('input[name="catalog-mode"]:checked') || {}).value === 'fast';
   const warning = document.querySelector('#overwrite-warning'); if (warning) warning.hidden = fast || !document.querySelector('#overwrite-catalog').checked;
-  const workerField = document.querySelector('#catalog-worker-count'); if (workerField) workerField.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
+  const workerField = document.querySelector('#catalog-worker-count'); if (workerField) workerField.disabled = fast || operationBusy || !document.querySelector('#cancel-catalog').hidden;
   const overwriteBox = document.querySelector('#overwrite-catalog'); if (overwriteBox) overwriteBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
   const manualBox = document.querySelector('#overwrite-manual'); if (manualBox) manualBox.disabled = fast || operationBusy || !overwriteBox.checked;
+  syncRangeAvailability();
   const note = document.querySelector('.catalog-note');
   if (note) note.textContent = 'Changed snippets are sent to the configured MiniCPM service.';
   const heading = document.querySelector('.catalog-heading p'); if (heading) heading.textContent = `Source index & MiniCPM explanations`;
@@ -237,7 +240,7 @@ document.querySelector('#refresh-warning').addEventListener('click', event => {
 });
 window.addEventListener('focus', () => { if (!submit.disabled) loadSettings(true).catch(() => {}); });
 
-document.querySelector('#catalog-worker-count').addEventListener('input', event => { event.currentTarget.dataset.touched = '1'; });
+document.querySelector('#catalog-worker-count').addEventListener('input', event => { event.currentTarget.dataset.touched = '1'; syncRangeAvailability(); });
 
 // The catalog list renders only one server-filtered page of 50 methods.
 const editor = document.querySelector('#description-editor');
@@ -366,4 +369,42 @@ document.querySelector('#catalog-query').addEventListener('input', () => {
 document.querySelector('#catalog-filter').addEventListener('change', () => { catalogOffset = 0; loadCatalogMethods(); });
 document.querySelector('#catalog-prev').addEventListener('click', () => { catalogOffset = Math.max(0, catalogOffset - 50); loadCatalogMethods(); });
 document.querySelector('#catalog-next').addEventListener('click', () => { catalogOffset += 50; loadCatalogMethods(); });
+
+
+function syncConfidenceRanges() {
+  ['threshold', 'default-threshold'].forEach(id => {
+    const number = document.getElementById(id);
+    const slider = document.getElementById(`${id}-slider`);
+    if (number.value !== '' && number.validity.valid) slider.value = number.value;
+    slider.style.setProperty('--range-fill', `${Number(slider.value) * 100}%`);
+    slider.setAttribute('aria-valuetext', Number(slider.value).toFixed(2));
+  });
+}
+function syncRangeAvailability() {
+  ['threshold', 'default-threshold'].forEach(id => {
+    document.getElementById(`${id}-slider`).disabled = document.getElementById(id).disabled;
+  });
+  const workers = document.querySelector('#catalog-worker-count');
+  document.querySelector('#worker-decrease').disabled = workers.disabled || Number(workers.value) <= 1;
+  document.querySelector('#worker-increase').disabled = workers.disabled || Number(workers.value) >= 5;
+}
+['threshold', 'default-threshold'].forEach(id => {
+  const number = document.getElementById(id);
+  const slider = document.getElementById(`${id}-slider`);
+  slider.addEventListener('input', () => { number.value = Number(slider.value).toFixed(2); syncConfidenceRanges(); });
+  number.addEventListener('input', syncConfidenceRanges);
+  number.addEventListener('change', () => {
+    if (number.value !== '' && number.validity.valid) number.value = Number(number.value).toFixed(2);
+    syncConfidenceRanges();
+  });
+});
+[-1, 1].forEach(delta => {
+  document.querySelector(delta < 0 ? '#worker-decrease' : '#worker-increase').addEventListener('click', () => {
+    const input = document.querySelector('#catalog-worker-count');
+    if (input.disabled) return;
+    input.value = Math.min(5, Math.max(1, (Math.round(Number(input.value)) || 1) + delta));
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+});
+syncConfidenceRanges(); syncRangeAvailability();
 loadSettings().catch(() => { document.querySelector('#catalog-status').textContent = 'Could not load settings.'; });

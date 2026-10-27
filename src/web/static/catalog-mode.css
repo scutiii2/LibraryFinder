@@ -46,3 +46,15 @@ select{font:inherit;color:#29354a;border:1px solid #dce1e9;border-radius:7px;pad
 .catalog-strip .secondary{color:#526078;background:white;border:1px solid #dce1e9}
 select:focus-visible,summary:focus-visible{outline:2px solid #465cdb;outline-offset:3px}
 @media(max-width:760px){#catalog-browser{padding:18px}.catalog-filters{grid-template-columns:minmax(0,1fr)}.description-actions button{flex:1 1 140px;white-space:normal}}
+
+/* A single, keyboard-accessible stepper shares the segmented control palette. */
+.catalog-mode #workers-option{display:grid;justify-items:start;gap:8px;border:0;background:transparent;padding:0;margin:0 0 18px;max-width:100%;border-radius:0}
+.catalog-mode #workers-option>label{display:block;border:0;border-radius:0;background:none;color:#29354a;padding:0;cursor:default}
+.worker-stepper{display:flex;align-items:stretch;border:1px solid #dce1e9;border-radius:7px;overflow:visible;background:#fff;max-width:100%}
+.catalog-strip .worker-stepper button{margin:0;min-height:40px;width:44px;padding:0;background:#eef0ff;color:#465cdb;border-radius:6px 0 0 6px;font-size:20px;font-weight:500}
+.catalog-strip .worker-stepper button:last-child{border-radius:0 6px 6px 0}
+.worker-stepper #catalog-worker-count{border:0;border-left:1px solid #dce1e9;border-right:1px solid #dce1e9;border-radius:0;width:54px;padding:8px 4px;min-height:40px;text-align:center;font-weight:600;font-size:14px;appearance:textfield;-moz-appearance:textfield}
+.worker-stepper input::-webkit-inner-spin-button,.worker-stepper input::-webkit-outer-spin-button{appearance:none;margin:0}
+.worker-stepper:has(input:disabled){background:#f6f7fa;opacity:.65}
+.worker-stepper button:disabled{opacity:.45;cursor:default}
+.catalog-mode #worker-hint{font-size:11px;line-height:1.7;color:#738095;margin:0}

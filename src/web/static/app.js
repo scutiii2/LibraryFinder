@@ -121,6 +121,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   const mode = document.querySelector('input[name="catalog-mode"]:checked').value;
   document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = true);
   const strategy = chosenStrategy(); strategyInputs().forEach(input => input.disabled = true);
+  const overwrite = document.querySelector('#overwrite-catalog'); const overwriting = mode === 'ai' && overwrite.checked; overwrite.disabled = true;
   setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with ' + ({minicpm: 'the MiniCPM service…', copilot: 'your signed-in Microsoft 365 Copilot account…'}[strategy] || 'MiniCPM if its service is reachable, otherwise your Copilot account…');
   const bar = document.querySelector('#catalog-progress');
   const label = document.querySelector('#catalog-progress-label');
@@ -143,7 +144,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   };
   bar.removeAttribute('value'); label.textContent = 'Scanning Python files…';
   try {
-    const response = await fetch(`/api/catalog/stream?mode=${mode}&strategy=${strategy}`, {method:'POST'});
+    const response = await fetch(`/api/catalog/stream?mode=${mode}&strategy=${strategy}&overwrite=${overwriting}`, {method:'POST'});
     if (!response.ok) throw new Error((await response.json()).detail);
     const cancelButton = document.querySelector('#cancel-catalog'); cancelButton.hidden = false; cancelButton.disabled = false; cancelButton.textContent = 'Cancel build';
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '', completed = false;
@@ -200,7 +201,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   } catch(error) { status.textContent = error.message; label.textContent = 'Build did not complete'; estimate.textContent = 'Completion estimate unavailable.'; bar.value = 0;
     workerRows.forEach(row => { if (!['finished','finished_with_errors','interrupted'].includes(row.element.dataset.status)) row.title.textContent += ' · Connection lost; current worker state unknown'; });
   }
-  finally { setBusy(false); document.querySelector('#cancel-catalog').hidden = true; document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = false); strategyInputs().forEach(input => input.disabled = false); updateAiText(); }
+  finally { setBusy(false); document.querySelector('#cancel-catalog').hidden = true; document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = false); strategyInputs().forEach(input => input.disabled = false); document.querySelector('#overwrite-catalog').disabled = false; updateAiText(); }
 });
 document.querySelector('#cancel-catalog').addEventListener('click', async event => {
   const button = event.currentTarget; button.disabled = true; button.textContent = 'Cancelling…';
@@ -215,6 +216,8 @@ function updateAiText() {
   aiService = serviceFor(chosenStrategy());
   const fast = (document.querySelector('input[name="catalog-mode"]:checked') || {}).value === 'fast';
   const strategyBox = document.querySelector('#ai-strategy'); if (strategyBox) strategyBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
+  const warning = document.querySelector('#overwrite-warning'); if (warning) warning.hidden = fast || !document.querySelector('#overwrite-catalog').checked;
+  const overwriteBox = document.querySelector('#overwrite-catalog'); if (overwriteBox) overwriteBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
   const minicpm = aiService === 'MiniCPM';
   const note = document.querySelector('.catalog-note');
   if (note) note.textContent = auto ? 'Auto uses the MiniCPM service when it is reachable and otherwise opens Copilot with your signed-in Microsoft 365 account.' : minicpm ? 'Changed snippets are sent to the configured MiniCPM service.' : 'Changed snippets are analyzed using your signed-in Microsoft 365 Copilot account. The catalog conversation is deleted after completion.';
@@ -226,7 +229,7 @@ function updateAiText() {
     : aiService === 'MiniCPM' ? 'AI-assisted sends new or changed methods to the configured MiniCPM service to explain them. No browser window is opened.'
     : 'AI-assisted opens a dedicated Copilot window to explain new or changed methods. You can keep it in the background and use other windows, but do not type, navigate, close tabs, or otherwise interact with that Copilot window until cataloging finishes.';
 }
-document.querySelectorAll('input[name="catalog-mode"], input[name="ai-strategy"]').forEach(input => input.addEventListener('change', updateAiText));
+document.querySelectorAll('input[name="catalog-mode"], input[name="ai-strategy"], #overwrite-catalog').forEach(input => input.addEventListener('change', updateAiText));
 
 document.querySelector('#refresh-warning').addEventListener('click', event => {
   event.preventDefault();

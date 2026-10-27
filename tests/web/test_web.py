@@ -270,3 +270,17 @@ def test_source_preview_is_bounded_and_rejects_unknown_or_outside_records(tmp_pa
     with pytest.raises(HTTPException) as external:
         source(run_id, outside.qualified_name)
     assert external.value.status_code == 403
+
+
+@pytest.mark.parametrize("mode, overwrite, queued", [("ai", False, 0), ("ai", True, 1), ("fast", True, 0)])
+def test_overwrite_reanalyzes_methods_that_already_have_explanations(tmp_path, monkeypatch, mode, overwrite, queued):
+    from dataclasses import replace
+    from core.models import CopilotEnrichment
+    monkeypatch.setattr("web.app.save_catalog", lambda *args: None)
+    method = _method("libs.find")
+    done = replace(method, enrichment=CopilotEnrichment("s", "p", (), (), (), "c", (), ()), enrichment_status="success")
+    seen = []
+    app = create_app(source_root=tmp_path, scanner=lambda _: _catalog(method), copilot_factory=lambda: type("C", (), {"enrich": lambda self, m: seen.append(m) or done.enrichment, "close": lambda self: True})())
+    app.state.catalog = _catalog(done)
+    result = _endpoint(app, "/api/catalog")(mode, None, overwrite)
+    assert len(seen) == queued

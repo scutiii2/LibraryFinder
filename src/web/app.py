@@ -117,7 +117,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         app.state.default_threshold = threshold
         return settings()
 
-    def build_catalog(report=None, mode="ai", strategy=None) -> dict:
+    def build_catalog(report=None, mode="ai", strategy=None, overwrite=False) -> dict:
         report = report or (lambda event: None)
         used = None
         copilot_factory = injected_factory
@@ -128,7 +128,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         if app.state.run and app.state.run["active"]:
             raise HTTPException(409, "Wait for the active search to finish.")
         scanned = scan_sources(app.state.source_roots, scanner=scanner)
-        previous = app.state.catalog
+        previous = None if overwrite and mode == "ai" else app.state.catalog
         old = {(m.file, m.qualified_name): m for m in previous.methods} if previous else {}
         queued = sum(not (old.get((m.file, m.qualified_name)) and old[(m.file, m.qualified_name)].fingerprint == m.fingerprint and old[(m.file, m.qualified_name)].enrichment_status == "success" and old[(m.file, m.qualified_name)].enrichment) for m in scanned.methods)
         report({"type": "progress", "stage": "preparing", "queued": queued, "total": len(scanned.methods)})
@@ -169,7 +169,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"cancel_requested": True}
 
     @app.post("/api/catalog")
-    def build_catalog_sync(mode: str = "ai", strategy: str | None = None) -> dict:
+    def build_catalog_sync(mode: str = "ai", strategy: str | None = None, overwrite: bool = False) -> dict:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         with app.state.catalog_lock:
@@ -178,12 +178,12 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             app.state.catalog_building = True
             app.state.catalog_cancel.clear()
         try:
-            return build_catalog(mode=mode, strategy=strategy)
+            return build_catalog(mode=mode, strategy=strategy, overwrite=overwrite)
         finally:
             app.state.catalog_building = False
 
     @app.post("/api/catalog/stream")
-    def stream_catalog(mode: str = "ai", strategy: str | None = None) -> StreamingResponse:
+    def stream_catalog(mode: str = "ai", strategy: str | None = None, overwrite: bool = False) -> StreamingResponse:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if strategy is not None and strategy not in STRATEGIES: raise HTTPException(422, "Choose auto, minicpm or copilot.")
         with app.state.catalog_lock:
@@ -194,7 +194,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         updates = queue.Queue()
         def worker():
             try:
-                result = build_catalog(updates.put, mode=mode, strategy=strategy)
+                result = build_catalog(updates.put, mode=mode, strategy=strategy, overwrite=overwrite)
                 updates.put({"type": "complete", **result})
             except Exception as error:
                 logging.getLogger("uvicorn.error").exception("Catalog build failed")

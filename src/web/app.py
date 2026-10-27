@@ -28,7 +28,8 @@ from backends.laya import LayaRanker
 from core.scanner import scan_library
 from core.service import find_methods
 from core.catalog import load_catalog, save_catalog, catalog_health
-from enrichment.pipeline import enrich_catalog
+from enrichment.pipeline import enrich_catalog, reusable
+from web.catalog_editor import register_catalog_editor, source_preview
 
 
 _STATIC_DIR = Path(__file__).with_name("static")
@@ -78,6 +79,8 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             page = page.replace(f'/static/{asset}"', f'/static/{asset}?v={version}"')
         return page.replace("{{DEFAULT_THRESHOLD}}", f"{app.state.default_threshold:.2f}")
 
+    register_catalog_editor(app, state)
+
     @app.get("/api/settings")
     def settings() -> dict:
         catalog = app.state.catalog
@@ -90,33 +93,34 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
 
     @app.post("/api/settings")
     def update_settings(payload: dict) -> dict:
-        if app.state.catalog_building:
-            raise HTTPException(409, "Wait for catalog building to finish.")
-        if app.state.run and app.state.run["active"]:
-            raise HTTPException(409, "Wait for the active search to finish.")
-        values = payload.get("source_roots", payload.get("source_root"))
-        if isinstance(values, str): values = [line.strip() for line in values.splitlines() if line.strip()]
-        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
-            raise HTTPException(422, "Enter library directories, one per line.")
-        try: directories = normalize_sources(values)
-        except ValueError as error: raise HTTPException(422, str(error)) from error
-        threshold = payload.get("threshold", app.state.default_threshold)
-        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
-            raise HTTPException(422, "Threshold must be a number from 0 through 1.")
-        state.mkdir(parents=True, exist_ok=True)
-        (state / "library-source.txt").write_text("\n".join(map(str, directories)), encoding="utf-8")
-        config_path = root / "configs.json"
-        config = read_config(root)
-        config["confidence_threshold"] = threshold
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-        if directories != app.state.source_roots:
-            app.state.catalog = None
-        app.state.source_roots = directories
-        app.state.source_root = directories[0]
-        app.state.default_threshold = threshold
-        return settings()
+        with app.state.catalog_lock:
+            if app.state.catalog_building:
+                raise HTTPException(409, "Wait for catalog building to finish.")
+            if app.state.run and app.state.run["active"]:
+                raise HTTPException(409, "Wait for the active search to finish.")
+            values = payload.get("source_roots", payload.get("source_root"))
+            if isinstance(values, str): values = [line.strip() for line in values.splitlines() if line.strip()]
+            if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+                raise HTTPException(422, "Enter library directories, one per line.")
+            try: directories = normalize_sources(values)
+            except ValueError as error: raise HTTPException(422, str(error)) from error
+            threshold = payload.get("threshold", app.state.default_threshold)
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
+                raise HTTPException(422, "Threshold must be a number from 0 through 1.")
+            state.mkdir(parents=True, exist_ok=True)
+            (state / "library-source.txt").write_text("\n".join(map(str, directories)), encoding="utf-8")
+            config_path = root / "configs.json"
+            config = read_config(root)
+            config["confidence_threshold"] = threshold
+            config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            if directories != app.state.source_roots:
+                app.state.catalog = None
+            app.state.source_roots = directories
+            app.state.source_root = directories[0]
+            app.state.default_threshold = threshold
+            return settings()
 
-    def build_catalog(report=None, mode="ai", overwrite=False, workers=None) -> dict:
+    def build_catalog(report=None, mode="ai", overwrite=False, workers=None, overwrite_manual=False) -> dict:
         report = report or (lambda event: None)
         client_factory = injected_factory
         if mode == "ai" and client_factory is None:
@@ -125,17 +129,21 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         if app.state.run and app.state.run["active"]:
             raise HTTPException(409, "Wait for the active search to finish.")
         scanned = scan_sources(app.state.source_roots, scanner=scanner)
-        previous = None if overwrite and mode == "ai" else app.state.catalog
+        previous = app.state.catalog
+        overwrite = overwrite and mode == "ai"
+        overwrite_manual = overwrite_manual and overwrite
         old = {(m.file, m.qualified_name): m for m in previous.methods} if previous else {}
-        queued = sum(not (old.get((m.file, m.qualified_name)) and old[(m.file, m.qualified_name)].fingerprint == m.fingerprint and old[(m.file, m.qualified_name)].enrichment_status == "success" and old[(m.file, m.qualified_name)].enrichment) for m in scanned.methods)
+        queued = sum(not reusable(old.get((m.file, m.qualified_name)), m, overwrite=overwrite, overwrite_manual=overwrite_manual) for m in scanned.methods)
         report({"type": "progress", "stage": "preparing", "queued": queued, "total": len(scanned.methods)})
         workers = (workers or configured_workers(root)) if mode == "ai" else 1
         client = client_factory() if mode == "ai" and workers == 1 else None
         def checkpoint(catalog):
-            save_catalog(catalog, state / "catalog.json")
-            app.state.catalog = catalog
+            with app.state.catalog_lock:
+                save_catalog(catalog, state / "catalog.json")
+                app.state.catalog = catalog
         try:
             callbacks = dict(on_checkpoint=checkpoint, cancel_event=app.state.catalog_cancel,
+                overwrite=overwrite, overwrite_manual=overwrite_manual,
                 on_progress=lambda current, total, method, status: report({"type": "progress", "stage": "enriching", "current": current, "total": total, "method": method.qualified_name, "status": status}),
                 on_error=lambda method, reason: report({"type": "method_error", "method": method.qualified_name, "message": reason}))
             if workers > 1:
@@ -147,8 +155,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             report({"type": "progress", "stage": "cleanup"})
             if client is not None: client.close()
         report({"type": "progress", "stage": "saving"})
-        save_catalog(catalog, state / "catalog.json")
-        app.state.catalog = catalog
+        checkpoint(catalog)
         return {"methods": len(catalog.methods), "files": len(catalog.files),
                 "errors": len(catalog.errors), "reused": summary.reused,
                 "enriched": summary.enriched, "failed": summary.failed,
@@ -165,21 +172,21 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         return {"cancel_requested": True}
 
     @app.post("/api/catalog")
-    def build_catalog_sync(mode: str = "ai", overwrite: bool = False, workers: int | None = None) -> dict:
+    def build_catalog_sync(mode: str = "ai", overwrite: bool = False, workers: int | None = None, overwrite_manual: bool = False) -> dict:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
-            if app.state.catalog_building:
-                raise HTTPException(409, "Catalog building is already running.")
+            if app.state.catalog_building or (app.state.run and app.state.run["active"]):
+                raise HTTPException(409, "Another operation is running.")
             app.state.catalog_building = True
             app.state.catalog_cancel.clear()
         try:
-            return build_catalog(mode=mode, overwrite=overwrite, workers=workers)
+            return build_catalog(mode=mode, overwrite=overwrite, workers=workers, overwrite_manual=overwrite_manual)
         finally:
             app.state.catalog_building = False
 
     @app.post("/api/catalog/stream")
-    def stream_catalog(mode: str = "ai", overwrite: bool = False, workers: int | None = None) -> StreamingResponse:
+    def stream_catalog(mode: str = "ai", overwrite: bool = False, workers: int | None = None, overwrite_manual: bool = False) -> StreamingResponse:
         if mode not in ("ai", "fast"): raise HTTPException(422, "Choose fast or ai catalog mode.")
         if workers is not None and not 1 <= workers <= 5: raise HTTPException(422, "Workers must be from 1 through 5.")
         with app.state.catalog_lock:
@@ -190,7 +197,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         updates = queue.Queue()
         def worker():
             try:
-                result = build_catalog(updates.put, mode=mode, overwrite=overwrite, workers=workers)
+                result = build_catalog(updates.put, mode=mode, overwrite=overwrite, workers=workers, overwrite_manual=overwrite_manual)
                 updates.put({"type": "complete", **result})
             except Exception as error:
                 logging.getLogger("uvicorn.error").exception("Catalog build failed")
@@ -207,19 +214,20 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
 
     @app.post("/api/search")
     def search(payload: dict) -> dict:
-        if app.state.catalog_building:
-            raise HTTPException(409, "Wait for catalog building to finish.")
-        goal = str(payload.get("goal", "")).strip()
-        threshold = payload.get("threshold", app.state.default_threshold)
-        if not goal:
-            raise HTTPException(422, "A search goal is required.")
-        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
-            raise HTTPException(422, "Threshold must be a number from 0 through 1.")
-        active = app.state.run
-        if active is not None and active["active"]:
-            raise HTTPException(409, "A search is already running.")
-        run = {"id": uuid.uuid4().hex, "events": queue.Queue(), "active": True, "catalog": None, "total": 0}
-        app.state.run = run
+        with app.state.catalog_lock:
+            if app.state.catalog_building:
+                raise HTTPException(409, "Wait for catalog building to finish.")
+            goal = str(payload.get("goal", "")).strip()
+            threshold = payload.get("threshold", app.state.default_threshold)
+            if not goal:
+                raise HTTPException(422, "A search goal is required.")
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
+                raise HTTPException(422, "Threshold must be a number from 0 through 1.")
+            active = app.state.run
+            if active is not None and active["active"]:
+                raise HTTPException(409, "A search is already running.")
+            run = {"id": uuid.uuid4().hex, "events": queue.Queue(), "active": True, "catalog": None, "total": 0}
+            app.state.run = run
 
         def worker() -> None:
             try:
@@ -277,20 +285,7 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
         record = run["catalog"].method(method)
         if record is None:
             raise HTTPException(404, "Catalog method not found.")
-        root_path = Path(app.state.source_root).resolve()
-        source_path = (root_path / record.file).resolve()
-        if source_path.suffix != ".py" or any(part.startswith(".env") for part in source_path.parts):
-            raise HTTPException(403, "Only Python source previews are supported.")
-        if not any(source_path != directory and directory in source_path.parents for directory in app.state.source_roots):
-            raise HTTPException(403, "Source path is outside the configured library.")
-        try:
-            all_lines = source_path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
-            raise HTTPException(404, "Source file is unavailable.") from error
-        start = max(1, record.line - 3)
-        end = min(len(all_lines), record.line + 12)
-        return {"path": record.file, "start_line": start,
-                "lines": all_lines[start - 1:end]}
+        return source_preview(app, record)
 
     return app
 

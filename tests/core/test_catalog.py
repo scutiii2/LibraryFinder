@@ -24,6 +24,9 @@ def test_existing_enriched_catalog_loads_without_class_metadata(tmp_path):
     assert isinstance(method.enrichment, Enrichment)
     assert method.enrichment.inputs == ("value",)
     assert method.enrichment_status == "success"
+    assert method.enrichment.source == "ai"
+    assert method.enrichment.edited_fingerprint == ""
+    saved["methods"][0]["enrichment"].update(source="ai", edited_fingerprint="")
     assert json.loads(json.dumps(catalog.to_dict()))["methods"] == saved["methods"]
 
 

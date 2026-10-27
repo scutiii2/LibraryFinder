@@ -6,6 +6,19 @@ def _method(name):
     return MethodRecord(name, "libs.drivers", "driver.py", 1, "public", None, (), (), None, (), None, (), (), ())
 
 
+def test_laya_attributes_manual_text_to_the_user():
+    from dataclasses import replace
+    from core.models import Enrichment
+    method = replace(_method("libs.find"), enrichment=Enrichment("My summary", "purpose", (), (), (), "", (), (), source="manual"), enrichment_status="success")
+    class Engine:
+        def predict(self, state, questions):
+            text = questions["fit"]["criteria"]["true"]
+            assert "User-written description: summary=My summary" in text
+            assert "MiniCPM analysis" not in text
+            return {"answers": {"fit": {"noul": 0.7}}}
+    assert LayaRanker(Engine()).rank("find", [method])["recommendations"][0]["confidence"] == 0.7
+
+
 def test_laya_ranker_accepts_each_method_with_yes_probability_above_half():
     first = _method("libs.drivers.First.find")
     second = _method("libs.drivers.Second.find")

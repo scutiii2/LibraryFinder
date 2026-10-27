@@ -42,7 +42,7 @@ def load_catalog(path: Path) -> Catalog:
 
 def catalog_health(catalog: Catalog | None, source) -> dict:
     reasons = []
-    counts = {"changed_files": 0, "new_files": 0, "scan_errors": 0, "incomplete_methods": 0}
+    counts = {"changed_files": 0, "new_files": 0, "scan_errors": 0, "incomplete_methods": 0, "stale_manual": 0}
     if catalog is None:
         reasons.append("No catalog exists for this library.")
     else:
@@ -52,6 +52,9 @@ def catalog_health(catalog: Catalog | None, source) -> dict:
         counts["new_files"] = len({str(p.resolve()) for root in roots for p in root.rglob("*.py")} - known)
         counts["scan_errors"] = len(catalog.errors)
         counts["incomplete_methods"] = sum(m.enrichment_status != "success" or m.enrichment is None for m in catalog.methods)
+        counts["stale_manual"] = sum(m.stale_manual for m in catalog.methods)
+        if counts["stale_manual"]:
+            reasons.append(f'{counts["stale_manual"]} manual descriptions: source changed since this description was written')
         for key, label in (("changed_files", "changed, deleted, or unreadable files"), ("new_files", "uncataloged Python files"), ("scan_errors", "scan errors"), ("incomplete_methods", "methods awaiting MiniCPM enrichment")):
             if counts[key]: reasons.append(f"{counts[key]} {label}")
     return {"ready": not reasons, "needs_refresh": bool(reasons), "reasons": reasons, **counts}

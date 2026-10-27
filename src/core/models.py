@@ -28,6 +28,8 @@ class Enrichment:
     automation_context: str
     keywords: tuple[str, ...]
     caveats: tuple[str, ...]
+    source: str = "ai"
+    edited_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,11 @@ class MethodRecord:
     fingerprint: str = ""
     enrichment: Enrichment | None = None
     enrichment_status: str = "pending"
+
+    @property
+    def stale_manual(self) -> bool:
+        return bool(self.enrichment and self.enrichment.source == "manual"
+                    and self.enrichment.edited_fingerprint != self.fingerprint)
 
 
 @dataclass(frozen=True)

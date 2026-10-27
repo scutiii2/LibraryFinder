@@ -29,13 +29,36 @@
       </section>
     <section id="catalog" class="catalog-strip">
       <div class="catalog-heading"><h2>Utility catalog</h2><p>Source index & MiniCPM explanations</p></div>
-      <div class="catalog-mode"><fieldset><legend>Catalog mode</legend><label><input type="radio" name="catalog-mode" value="fast"> Fast</label><label><input type="radio" name="catalog-mode" value="ai" checked> AI-assisted</label></fieldset><label id="workers-option">Workers <input type="number" id="catalog-worker-count" min="1" max="5" step="1" value="1"> (1–5 parallel)</label><label id="overwrite-option"><input type="checkbox" id="overwrite-catalog"> Overwrite existing explanations (re-analyze every method)</label><p id="overwrite-warning" class="small">Replaces explanations as the build runs. If the build is cancelled or interrupted, methods not yet reached lose their old explanation and stay pending until the next refresh.</p><p id="catalog-mode-help">AI-assisted sends new or changed methods to the configured MiniCPM service to explain them.</p></div>
+      <div class="catalog-mode"><fieldset><legend>Catalog mode</legend><label><input type="radio" name="catalog-mode" value="fast"> Fast</label><label><input type="radio" name="catalog-mode" value="ai" checked> AI-assisted</label></fieldset><label id="workers-option">Workers <input type="number" id="catalog-worker-count" min="1" max="5" step="1" value="1"> (1–5 parallel)</label><label id="overwrite-option"><input type="checkbox" id="overwrite-catalog"> Overwrite existing explanations (re-analyze AI descriptions)</label><label id="overwrite-manual-option"><input type="checkbox" id="overwrite-manual" disabled> Also overwrite manual descriptions</label><p id="overwrite-warning" class="small">Replaces AI descriptions as the build runs. Manual descriptions are protected unless you also opt in above. Cancelled or interrupted builds leave unreached descriptions pending only when selected for replacement.</p><p id="catalog-mode-help">AI-assisted sends new or changed methods to the configured MiniCPM service to explain them.</p></div>
       <div><p id="catalog-status">Loading library settings…</p></div>
       <button id="build-catalog" type="button">Build / refresh catalog</button>
       <button id="cancel-catalog" type="button" hidden>Cancel build</button>
       <div><progress id="catalog-progress" max="100" value="0" aria-label="Catalog build progress"></progress><span id="catalog-progress-label" role="status">Ready</span></div>
       <ul id="catalog-errors" aria-live="polite"></ul>
       <p class="catalog-note">Changed snippets are sent to the configured MiniCPM service.</p>
+      <section id="catalog-browser" aria-labelledby="catalog-browser-title">
+        <h3 id="catalog-browser-title">Browse methods</h3>
+        <div class="catalog-filters">
+          <label for="catalog-query">Filter by name<input id="catalog-query" type="search" placeholder="Find a method…" maxlength="2000"></label>
+          <label for="catalog-filter">Description status<select id="catalog-filter"><option value="">All statuses</option><option value="ai">AI</option><option value="manual">Manual</option><option value="pending">Pending</option><option value="failed">Failed</option></select></label>
+        </div>
+        <p id="catalog-list-status" role="status" aria-live="polite"></p>
+        <ul id="catalog-methods" aria-label="Catalog methods"></ul>
+        <div class="catalog-pagination"><button id="catalog-prev" type="button" disabled>Previous</button><span id="catalog-page"></span><button id="catalog-next" type="button" disabled>Next</button></div>
+        <form id="description-editor" hidden aria-labelledby="description-title">
+          <h3 id="description-title"></h3>
+          <p id="description-stale" role="status" hidden>Source changed since this description was written. Review and save to mark it current.</p>
+          <label for="description-summary">Summary<textarea id="description-summary" maxlength="2000" required></textarea></label>
+          <label for="description-purpose">Purpose<textarea id="description-purpose" maxlength="2000" required></textarea></label>
+          <label for="description-context">Automation context<textarea id="description-context" maxlength="2000"></textarea></label>
+          <label for="description-keywords">Keywords (comma separated, up to 30)<input id="description-keywords" type="text" maxlength="1859"></label>
+          <label for="description-caveats">Caveats (one per line, up to 30)<textarea id="description-caveats"></textarea></label>
+          <dl id="description-facts"></dl>
+          <details><summary>Source preview</summary><pre id="description-source">Select a method.</pre></details>
+          <div class="description-actions"><button type="submit" id="description-save">Save description</button><button type="button" id="description-cancel" class="secondary">Cancel</button><button type="button" id="description-clear" class="secondary">Clear description</button></div>
+        </form>
+        <p id="description-status" role="status" aria-live="polite"></p>
+      </section>
     </section>
       </div><aside class="settings-help"><h3>One catalog, two steps</h3><p>Python scanning records methods and their locations. MiniCPM adds explanations that make them easier to discover.</p><h3>Incremental by default</h3><p>Only new, changed, or previously failed methods are sent for analysis when you refresh.</p><h3>Refresh reminders</h3><p>The note above the workspace appears when source files change or explanations are incomplete.</p></aside></div>
     </section>

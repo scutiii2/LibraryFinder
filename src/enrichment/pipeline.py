@@ -18,7 +18,16 @@ class EnrichmentSummary:
     pending: int = 0
 
 
-def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: EnrichmentClient, on_progress=None, on_error=None, on_checkpoint=None, on_started=None, cancel_event=None) -> tuple[Catalog, EnrichmentSummary]:
+def reusable(prior, method, *, overwrite=False, overwrite_manual=False):
+    """Manual text belongs to the user, even when the scanned source changes."""
+    if not prior or prior.enrichment_status != "success" or not prior.enrichment:
+        return False
+    if prior.enrichment.source == "manual":
+        return not (overwrite and overwrite_manual)
+    return not overwrite and prior.fingerprint == method.fingerprint
+
+
+def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: EnrichmentClient, on_progress=None, on_error=None, on_checkpoint=None, on_started=None, cancel_event=None, *, overwrite=False, overwrite_manual=False) -> tuple[Catalog, EnrichmentSummary]:
     if client is not None and cancel_event is not None: client.cancel_event = cancel_event
     old = {(item.file, item.qualified_name): item for item in previous.methods} if previous else {}
     methods = []; reused = enriched = failed = pending = 0
@@ -29,13 +38,13 @@ def enrich_catalog(scanned: Catalog, previous: Catalog | None, client: Enrichmen
             remaining = []
             for item in scanned.methods[len(methods):]:
                 prior = old.get((item.file, item.qualified_name))
-                if prior and prior.fingerprint == item.fingerprint and prior.enrichment_status == "success" and prior.enrichment:
+                if reusable(prior, item, overwrite=overwrite, overwrite_manual=overwrite_manual):
                     item = replace(item, enrichment=prior.enrichment, enrichment_status="success")
                 remaining.append(item)
             on_checkpoint(replace(scanned, methods=tuple(methods + remaining)))
     for method in scanned.methods:
         prior = old.get((method.file, method.qualified_name))
-        if prior and prior.fingerprint == method.fingerprint and prior.enrichment_status == "success" and prior.enrichment:
+        if reusable(prior, method, overwrite=overwrite, overwrite_manual=overwrite_manual):
             methods.append(replace(method, enrichment=prior.enrichment, enrichment_status="success")); reused += 1
             checkpoint()
             if on_progress: on_progress(len(methods), len(scanned.methods), method, "reused")

@@ -35,7 +35,7 @@ class LayaRanker:
         for current, item in enumerate(methods, start=1):
             enrichment = item.enrichment if item.enrichment_status == "success" else None
             semantic = (
-                f" MiniCPM analysis (generated, not source fact): summary={enrichment.summary}; "
+                f" {'User-written description' if enrichment.source == 'manual' else 'MiniCPM analysis (generated, not source fact)'}: summary={enrichment.summary}; "
                 f"purpose={enrichment.purpose}; keywords={enrichment.keywords}."
                 if enrichment else ""
             )

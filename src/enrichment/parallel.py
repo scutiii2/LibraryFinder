@@ -3,11 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Lock
 
-from enrichment.pipeline import enrich_catalog, EnrichmentSummary
+from enrichment.pipeline import enrich_catalog, EnrichmentSummary, reusable
 
 
 def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint=None,
-                    on_progress=None, on_error=None, on_worker=None, cancel_event=None):
+                    on_progress=None, on_error=None, on_worker=None, cancel_event=None,
+                    overwrite=False, overwrite_manual=False):
     if not 1 <= workers <= 5:
         raise ValueError("workers must be from 1 through 5")
     lock = Lock()
@@ -18,7 +19,7 @@ def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint
     old = {(m.file, m.qualified_name): m for m in previous.methods} if previous else {}
     for key, method in list(records.items()):
         prior = old.get(key)
-        if prior and prior.fingerprint == method.fingerprint and prior.enrichment_status == "success" and prior.enrichment:
+        if reusable(prior, method, overwrite=overwrite, overwrite_manual=overwrite_manual):
             records[key] = replace(method, enrichment=prior.enrichment, enrichment_status="success")
     def snapshot():
         return replace(scanned, methods=tuple(records[(m.file, m.qualified_name)] for m in scanned.methods))
@@ -56,6 +57,7 @@ def enrich_parallel(scanned, previous, client_factory, workers, *, on_checkpoint
             result = enrich_catalog(replace(scanned, methods=methods), previous, client,
                 on_checkpoint=checkpoint, on_progress=report_progress, on_error=error,
                 cancel_event=cancel_event,
+                overwrite=overwrite, overwrite_manual=overwrite_manual,
                 on_started=lambda method: emit("processing", method))
             return result
         finally:

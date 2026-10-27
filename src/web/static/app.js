@@ -10,7 +10,10 @@ const hits = document.querySelector('#hits');
 const summary = document.querySelector('#summary');
 
 let passed = 0, assessed = 0;
+let operationBusy = false;
 function setBusy(busy) {
+  operationBusy = busy;
+  updateDescriptionBusy();
   goal.disabled = busy; threshold.disabled = busy; submit.disabled = busy;
   form.setAttribute('aria-busy', String(busy));
   document.querySelectorAll('.chip').forEach(button => button.disabled = busy);
@@ -98,6 +101,7 @@ async function loadSettings(keepStatus = false) {
   const response = await fetch('/api/settings'); const data = await response.json();
   const count = document.querySelector('#catalog-worker-count'); if (!count.dataset.touched) count.value = data.catalog_workers || 1;
   updateAiText();
+  await loadCatalogMethods();
   document.querySelector('#source-root').value = (data.source_roots || [data.source_root]).join('\n');
   document.querySelector('#default-threshold').value = data.threshold;
   if (!keepStatus) document.querySelector('#catalog-status').textContent = `${(data.source_roots || [data.source_root]).length} library directories · ${data.catalog_methods === null ? 'Ready to build' : data.catalog_methods + ' methods cataloged'}`;
@@ -113,10 +117,13 @@ document.querySelector('#settings-form').addEventListener('submit', async event 
   } catch(error) { status.textContent = error.message; }
 });
 document.querySelector('#build-catalog').addEventListener('click', async () => {
+  if (!discardDescriptionChanges()) return;
+  closeDescriptionEditor();
   const mode = document.querySelector('input[name="catalog-mode"]:checked').value;
   document.querySelectorAll('input[name="catalog-mode"]').forEach(input => input.disabled = true);
   const workerBox = document.querySelector('#catalog-worker-count'); const workerCount = Math.min(5, Math.max(1, Math.round(Number(workerBox.value)) || 1)); workerBox.value = workerCount; workerBox.disabled = true;
   const overwrite = document.querySelector('#overwrite-catalog'); const overwriting = mode === 'ai' && overwrite.checked; overwrite.disabled = true;
+  const overwriteManual = document.querySelector('#overwrite-manual'); const replacingManual = overwriting && overwriteManual.checked; overwriteManual.disabled = true;
   setBusy(true); const status = document.querySelector('#catalog-status'); status.textContent = mode === 'fast' ? 'Scanning Python files locally…' : 'Scanning Python files. New or changed snippets will be analyzed with the MiniCPM service…';
   const bar = document.querySelector('#catalog-progress');
   const label = document.querySelector('#catalog-progress-label');
@@ -139,7 +146,7 @@ document.querySelector('#build-catalog').addEventListener('click', async () => {
   };
   bar.removeAttribute('value'); label.textContent = 'Scanning Python files…';
   try {
-    const response = await fetch(`/api/catalog/stream?mode=${mode}&overwrite=${overwriting}&workers=${workerCount}`, {method:'POST'});
+    const response = await fetch(`/api/catalog/stream?mode=${mode}&overwrite=${overwriting}&overwrite_manual=${replacingManual}&workers=${workerCount}`, {method:'POST'});
     if (!response.ok) throw new Error((await response.json()).detail);
     const cancelButton = document.querySelector('#cancel-catalog'); cancelButton.hidden = false; cancelButton.disabled = false; cancelButton.textContent = 'Cancel build';
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '', completed = false;
@@ -211,6 +218,7 @@ function updateAiText() {
   const warning = document.querySelector('#overwrite-warning'); if (warning) warning.hidden = fast || !document.querySelector('#overwrite-catalog').checked;
   const workerField = document.querySelector('#catalog-worker-count'); if (workerField) workerField.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
   const overwriteBox = document.querySelector('#overwrite-catalog'); if (overwriteBox) overwriteBox.disabled = fast || !document.querySelector('#cancel-catalog').hidden;
+  const manualBox = document.querySelector('#overwrite-manual'); if (manualBox) manualBox.disabled = fast || operationBusy || !overwriteBox.checked;
   const note = document.querySelector('.catalog-note');
   if (note) note.textContent = 'Changed snippets are sent to the configured MiniCPM service.';
   const heading = document.querySelector('.catalog-heading p'); if (heading) heading.textContent = `Source index & MiniCPM explanations`;
@@ -228,5 +236,134 @@ document.querySelector('#refresh-warning').addEventListener('click', event => {
   document.querySelector('#build-catalog').focus({preventScroll: true});
 });
 window.addEventListener('focus', () => { if (!submit.disabled) loadSettings(true).catch(() => {}); });
-loadSettings().catch(() => { document.querySelector('#catalog-status').textContent = 'Could not load settings.'; });
+
 document.querySelector('#catalog-worker-count').addEventListener('input', event => { event.currentTarget.dataset.touched = '1'; });
+
+// The catalog list renders only one server-filtered page of 50 methods.
+const editor = document.querySelector('#description-editor');
+const descriptionStatus = document.querySelector('#description-status');
+let catalogOffset = 0, catalogTotal = 0, catalogRequest = 0, sourceRequest = 0;
+let selectedDescription = null, descriptionDirty = false, descriptionSaving = false;
+const descriptionFields = {
+  summary: document.querySelector('#description-summary'),
+  purpose: document.querySelector('#description-purpose'),
+  automation_context: document.querySelector('#description-context'),
+  keywords: document.querySelector('#description-keywords'),
+  caveats: document.querySelector('#description-caveats')
+};
+function discardDescriptionChanges() {
+  return !descriptionSaving && (!descriptionDirty || window.confirm('Discard unsaved description changes?'));
+}
+function closeDescriptionEditor() {
+  selectedDescription = null; descriptionDirty = false; sourceRequest++;
+  editor.hidden = true;
+  document.querySelectorAll('#catalog-methods button').forEach(button => button.removeAttribute('aria-current'));
+}
+function updateDescriptionBusy() {
+  if (!editor) return;
+  editor.querySelectorAll('input, textarea, button').forEach(control => {
+    control.disabled = descriptionSaving || (operationBusy && control.id !== 'description-cancel');
+  });
+  editor.setAttribute('aria-busy', String(descriptionSaving));
+}
+async function loadCatalogMethods() {
+  const request = ++catalogRequest;
+  const params = new URLSearchParams({query:document.querySelector('#catalog-query').value,
+    status:document.querySelector('#catalog-filter').value, offset:catalogOffset, limit:50});
+  const status = document.querySelector('#catalog-list-status');
+  try {
+    const response = await fetch(`/api/catalog/methods?${params}`);
+    const data = await response.json();
+    if (request !== catalogRequest) return;
+    if (!response.ok) throw new Error(data.detail);
+    catalogTotal = data.total;
+    if (catalogOffset >= catalogTotal && catalogOffset > 0) {
+      catalogOffset = Math.max(0, Math.floor((catalogTotal - 1) / 50) * 50);
+      return loadCatalogMethods();
+    }
+    const list = document.querySelector('#catalog-methods'); list.replaceChildren();
+    data.methods.forEach(method => {
+      const item = document.createElement('li'); const button = document.createElement('button');
+      button.type = 'button'; button.className = 'catalog-method';
+      const name = document.createElement('strong'); name.textContent = method.qualified_name;
+      const location = document.createElement('span'); location.textContent = `${method.file}:${method.line}`;
+      const badge = document.createElement('span'); badge.className = `pill description-${method.status}`;
+      badge.textContent = {ai:'AI',manual:'Manual',pending:'Pending',failed:'Failed'}[method.status];
+      button.append(name, location, badge);
+      if (selectedDescription?.qualified_name === method.qualified_name) button.setAttribute('aria-current', 'true');
+      button.addEventListener('click', () => selectDescription(method, button));
+      item.append(button); list.append(item);
+    });
+    status.textContent = catalogTotal ? `${catalogTotal} matching methods` : 'No matching methods. Build a catalog or change the filters.';
+    document.querySelector('#catalog-page').textContent = catalogTotal ? `${catalogOffset + 1}–${Math.min(catalogOffset + 50, catalogTotal)} of ${catalogTotal}` : '0 methods';
+    document.querySelector('#catalog-prev').disabled = catalogOffset === 0;
+    document.querySelector('#catalog-next').disabled = catalogOffset + 50 >= catalogTotal;
+  } catch (error) { if (request === catalogRequest) status.textContent = `Could not load methods: ${error.message}`; }
+}
+async function selectDescription(method, button) {
+  if (!discardDescriptionChanges()) return;
+  selectedDescription = method; descriptionDirty = false; editor.hidden = false;
+  descriptionStatus.textContent = '';
+  document.querySelector('#description-title').textContent = method.qualified_name;
+  document.querySelector('#description-stale').hidden = !method.stale_manual;
+  Object.entries(descriptionFields).forEach(([key, input]) => {
+    const value = method.description[key];
+    input.value = Array.isArray(value) ? value.join(key === 'keywords' ? ', ' : '\n') : value;
+  });
+  const facts = document.querySelector('#description-facts'); facts.replaceChildren();
+  ['inputs','outputs','side_effects'].forEach(key => {
+    const row = document.createElement('div'); const term = document.createElement('dt'); const detail = document.createElement('dd');
+    term.textContent = {inputs:'Inputs',outputs:'Outputs',side_effects:'Side effects'}[key];
+    detail.textContent = method.description[key].join('; ') || 'None recorded'; row.append(term, detail); facts.append(row);
+  });
+  document.querySelectorAll('#catalog-methods button').forEach(row => row.removeAttribute('aria-current'));
+  button?.setAttribute('aria-current', 'true');
+  updateDescriptionBusy();
+  const request = ++sourceRequest; const preview = document.querySelector('#description-source');
+  preview.textContent = 'Loading source…';
+  try {
+    const response = await fetch(`/api/catalog/source?method=${encodeURIComponent(method.qualified_name)}`);
+    const data = await response.json(); if (request !== sourceRequest) return;
+    preview.textContent = response.ok ? `${data.path}\n\n${data.lines.map((line, index) => `${String(data.start_line + index).padStart(4)}  ${line}`).join('\n')}` : data.detail;
+  } catch (error) { if (request === sourceRequest) preview.textContent = 'Source unavailable. Check the server connection.'; }
+}
+editor.addEventListener('input', () => { descriptionDirty = true; });
+window.addEventListener('beforeunload', event => { if (descriptionDirty) { event.preventDefault(); event.returnValue = ''; } });
+document.querySelector('#description-cancel').addEventListener('click', () => {
+  if (discardDescriptionChanges()) { closeDescriptionEditor(); descriptionStatus.textContent = 'Editing cancelled.'; }
+});
+async function persistDescription(clear = false) {
+  if (!selectedDescription || descriptionSaving || operationBusy) return;
+  const payload = clear ? {clear:true} : {
+    summary:descriptionFields.summary.value, purpose:descriptionFields.purpose.value,
+    automation_context:descriptionFields.automation_context.value,
+    keywords:descriptionFields.keywords.value.split(',').map(value => value.trim()).filter(Boolean),
+    caveats:descriptionFields.caveats.value.split('\n').map(value => value.trim()).filter(Boolean)
+  };
+  descriptionSaving = true; updateDescriptionBusy(); descriptionStatus.textContent = 'Saving description…';
+  try {
+    const response = await fetch(`/api/catalog/methods/${encodeURIComponent(selectedDescription.qualified_name)}/description`,
+      {method:'PUT', headers:{'content-type':'application/json'}, body:JSON.stringify(payload)});
+    const data = await response.json(); if (!response.ok) throw new Error(data.detail);
+    selectedDescription = data; descriptionDirty = false;
+    document.querySelector('#description-stale').hidden = true;
+    if (clear) {
+      Object.entries(descriptionFields).forEach(([key, input]) => input.value = Array.isArray(data.description[key]) ? data.description[key].join(key === 'keywords' ? ', ' : '\n') : data.description[key]);
+    }
+    descriptionStatus.textContent = clear ? 'Description cleared. Method is pending.' : 'Manual description saved.';
+    await loadSettings(true);
+  } catch (error) { descriptionStatus.textContent = `Could not save: ${error.message}`; }
+  finally { descriptionSaving = false; updateDescriptionBusy(); }
+}
+editor.addEventListener('submit', event => { event.preventDefault(); persistDescription(); });
+document.querySelector('#description-clear').addEventListener('click', () => {
+  if (window.confirm('Clear this description and return the method to pending?')) persistDescription(true);
+});
+let catalogFilterTimer;
+document.querySelector('#catalog-query').addEventListener('input', () => {
+  clearTimeout(catalogFilterTimer); catalogFilterTimer = setTimeout(() => { catalogOffset = 0; loadCatalogMethods(); }, 200);
+});
+document.querySelector('#catalog-filter').addEventListener('change', () => { catalogOffset = 0; loadCatalogMethods(); });
+document.querySelector('#catalog-prev').addEventListener('click', () => { catalogOffset = Math.max(0, catalogOffset - 50); loadCatalogMethods(); });
+document.querySelector('#catalog-next').addEventListener('click', () => { catalogOffset += 50; loadCatalogMethods(); });
+loadSettings().catch(() => { document.querySelector('#catalog-status').textContent = 'Could not load settings.'; });

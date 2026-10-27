@@ -291,7 +291,7 @@ def test_settings_and_catalog_endpoints_have_no_strategy_selection(tmp_path):
     app = create_app(source_root=tmp_path)
     assert "enrichment_backend" not in _endpoint(app, "/api/settings")()
     for path in ("/api/catalog", "/api/catalog/stream"):
-        assert set(inspect.signature(_endpoint(app, path)).parameters) == {"mode", "overwrite", "workers"}
+        assert set(inspect.signature(_endpoint(app, path)).parameters) == {"mode", "overwrite", "workers", "overwrite_manual"}
     page = _endpoint(app, "/")()
     assert 'id="ai-strategy"' not in page
     assert 'value="fast"' in page and 'value="ai"' in page

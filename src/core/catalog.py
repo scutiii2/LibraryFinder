@@ -6,9 +6,20 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 
 from core.models import Catalog
+
+
+def _replace(source: Path, destination: Path, attempts: int = 20, pause: float = 0.25) -> None:
+    """os.replace, retried: on Windows a scanner or indexer briefly holding the file open denies the swap."""
+    for attempt in range(attempts):
+        try:
+            return os.replace(source, destination)
+        except PermissionError:
+            if attempt == attempts - 1: raise
+            time.sleep(pause)
 
 
 def save_catalog(catalog: Catalog, destination: Path) -> None:
@@ -20,7 +31,7 @@ def save_catalog(catalog: Catalog, destination: Path) -> None:
             json.dump(catalog.to_dict(), output, indent=2, sort_keys=True)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary, destination)
+        _replace(temporary, destination)
     finally:
         if temporary is not None and temporary.exists(): temporary.unlink()
 

@@ -25,3 +25,19 @@ def test_saved_catalog_loads_and_detects_changed_source(library_root, tmp_path):
 
     (library_root / "utils" / "settings.py").write_text("def changed():\n    pass\n")
     assert stale_files(catalog) == (library_root / "utils" / "settings.py",)
+
+
+def test_save_retries_when_windows_briefly_denies_the_swap(tmp_path, monkeypatch):
+    import os
+    import core.catalog as module
+    real, calls = os.replace, []
+
+    def flaky(source, destination):
+        calls.append(1)
+        if len(calls) < 3: raise PermissionError("locked")
+        return real(source, destination)
+    monkeypatch.setattr(module.os, "replace", flaky)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    scanned = scan_library(tmp_path)
+    module.save_catalog(scanned, tmp_path / "catalog.json")
+    assert len(calls) == 3 and (tmp_path / "catalog.json").exists()

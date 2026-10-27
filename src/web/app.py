@@ -189,8 +189,9 @@ def create_app(*, source_root: Path | None = None, default_threshold: float | No
             try:
                 result = build_catalog(updates.put, mode=mode)
                 updates.put({"type": "complete", **result})
-            except Exception:
-                updates.put({"type": "error", "message": "Catalog build failed. Check the server log and retry."})
+            except Exception as error:
+                logging.getLogger("uvicorn.error").exception("Catalog build failed")
+                updates.put({"type": "error", "message": f"Catalog build failed: {type(error).__name__}: {error}"[:300]})
             finally:
                 app.state.catalog_building = False
         threading.Thread(target=worker, daemon=True).start()
